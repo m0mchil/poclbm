@@ -75,8 +75,8 @@ while True:
 	start = time()
 	while True:
 		if (output[0]):
-			print '\rfound: ' + output[1] + '                                 '
 			work['block'] = work['block'][:152] + pack('I', int(output[1])).encode('hex') + work['block'][160:]
+			sys.stdout.write('\r                                        \rfound: %s\n' % output[1])
 			break
 
 		if (time() - start > 10 or base + globalThreads == 0xFFFFFFFF):
