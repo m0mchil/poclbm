@@ -15,11 +15,11 @@ parser.add_option('-u', '--user',     dest='user',     default='bitcoin',   help
 parser.add_option('--pass',           dest='password', default='password',  help='password')
 parser.add_option('-o', '--host',     dest='host',     default='127.0.0.1', help='RPC host')
 parser.add_option('-p', '--port',     dest='port',     default='8332',      help='RPC port')
+parser.add_option('-f', '--frames',   dest='frames',   default=30,          help='will try to bring single kernel execution to 1/frames seconds, default is 30, increase this for less desktop lag', type='int')
 (options, args) = parser.parse_args()
 
 platform = cl.get_platforms()[0]
 devices = platform.get_devices(cl.device_type.GPU)
-##context = create_some_context()
 context = cl.Context(devices, None, None)
 queue = cl.CommandQueue(context)
 
@@ -31,8 +31,14 @@ WORK_GROUP_SIZE = 0
 for device in devices:
 	WORK_GROUP_SIZE += miner.search.get_work_group_info(cl.kernel_work_group_info.WORK_GROUP_SIZE, device)
 
-globalThreads = WORK_GROUP_SIZE * 33280 #set to less if desktop lags
-localThreads  = WORK_GROUP_SIZE
+frames = options.frames
+frame = float(1)/frames
+window = frame/30
+upper = frame + window
+lower = frame - window
+
+unit = WORK_GROUP_SIZE * 256
+globalThreads = unit * 10
 
 bitcoin = ServiceProxy('http://' + options.user + ':' + options.password + '@' + options.host + ':' + options.port)
 
@@ -40,7 +46,7 @@ work = {}
 work['extraNonce'] = 0
 work['block'] = ''
 
-output = np.zeros(2, np.uint32)
+output = np.zeros(2, np.int32)
 
 while True:
 	try:
@@ -86,9 +92,15 @@ while True:
 		if (base + globalThreads > 0xFFFFFFFF):
 			base = 0xFFFFFFFF - globalThreads
 
-		miner.search(queue, (globalThreads, ), (localThreads, ), block2_buf, state_buf, target_buf, output_buf, pack('I', base))
+		kernelStart = time()
+		miner.search(queue, (globalThreads, ), (WORK_GROUP_SIZE, ), block2_buf, state_buf, target_buf, output_buf, pack('I', base))
 		cl.enqueue_read_buffer(queue, output_buf, output).wait()
-		
+
+		if (time() - kernelStart < lower):
+			globalThreads += unit
+		elif (time() - kernelStart > upper and globalThreads != unit):
+			globalThreads -= unit
+
 		if ((base / globalThreads) % 10 == 0):
 			sys.stdout.write('\r                                        \r%s khash/s' % int((base / (time() - start)) / 1000))
 			sys.stdout.flush()
