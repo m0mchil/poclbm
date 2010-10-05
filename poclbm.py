@@ -15,7 +15,8 @@ parser.add_option('-u', '--user',     dest='user',     default='bitcoin',   help
 parser.add_option('--pass',           dest='password', default='password',  help='password')
 parser.add_option('-o', '--host',     dest='host',     default='127.0.0.1', help='RPC host')
 parser.add_option('-p', '--port',     dest='port',     default='8332',      help='RPC port')
-parser.add_option('-f', '--frames',   dest='frames',   default=30,          help='will try to bring single kernel execution to 1/frames seconds, default is 30, increase this for less desktop lag', type='int')
+parser.add_option('-r', '--rate',     dest='rate',     default=1,           help='hash rate interval in seconds, default=1', type='float')
+parser.add_option('-f', '--frames',   dest='frames',   default=60,          help='will try to bring single kernel execution to 1/frames seconds, default=60, increase this for less desktop lag', type='int')
 (options, args) = parser.parse_args()
 
 platform = cl.get_platforms()[0]
@@ -77,8 +78,8 @@ while True:
 	state_buf  = cl.Buffer(context, mf.READ_ONLY  | mf.USE_HOST_PTR, hostbuf=state)
 	target_buf = cl.Buffer(context, mf.READ_ONLY  | mf.USE_HOST_PTR, hostbuf=target)
 	output_buf = cl.Buffer(context, mf.WRITE_ONLY | mf.USE_HOST_PTR, hostbuf=output)
-	
-	start = time()
+
+	rate = start = time()
 	while True:
 		if (output[0]):
 			work['block'] = work['block'][:152] + pack('I', int(output[1])).encode('hex') + work['block'][160:]
@@ -95,12 +96,14 @@ while True:
 		kernelStart = time()
 		miner.search(queue, (globalThreads, ), (WORK_GROUP_SIZE, ), block2_buf, state_buf, target_buf, output_buf, pack('I', base))
 		cl.enqueue_read_buffer(queue, output_buf, output).wait()
+		kernelTime = time() - kernelStart
 
-		if (time() - kernelStart < lower):
+		if (kernelTime < lower):
 			globalThreads += unit
-		elif (time() - kernelStart > upper and globalThreads != unit):
+		elif (kernelTime > upper and globalThreads != unit):
 			globalThreads -= unit
 
-		if ((base / globalThreads) % 10 == 0):
+		if (time() - rate + frame > options.rate):
+			rate = time()
 			sys.stdout.write('\r                                        \r%s khash/s' % int((base / (time() - start)) / 1000))
 			sys.stdout.flush()
