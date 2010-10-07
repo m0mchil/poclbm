@@ -47,7 +47,7 @@ work = {}
 work['extraNonce'] = 0
 work['block'] = ''
 
-output = np.zeros(2, np.int32)
+output = np.zeros(2, np.uint32)
 
 while True:
 	try:
@@ -82,7 +82,7 @@ while True:
 	rate = start = time()
 	while True:
 		if (output[0]):
-			work['block'] = work['block'][:152] + pack('I', int(output[1])).encode('hex') + work['block'][160:]
+			work['block'] = work['block'][:152] + pack('I', long(output[1])).encode('hex') + work['block'][160:]
 			sys.stdout.write('\r                                        \rfound: %s\n' % output[1])
 			break
 
