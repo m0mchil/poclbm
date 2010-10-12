@@ -6,9 +6,17 @@ import pyopencl as cl
 
 from struct import *
 from time import sleep, time
+from datetime import datetime
 from jsonrpc import ServiceProxy
 from optparse import OptionParser
 from jsonrpc.proxy import JSONRPCException
+
+def sysWrite(format, args=()):
+	sys.stdout.write('\r                                        \r' + format % args)
+	sys.stdout.flush()
+
+def sysWriteLn(format, args=()):
+	sysWrite(format + '\n', args)
 
 parser = OptionParser()
 parser.add_option('-u', '--user',     dest='user',     default='bitcoin',   help='user name')
@@ -53,13 +61,11 @@ while True:
 	try:
 		work = bitcoin.getwork(work['extraNonce'], work['block'])
 	except JSONRPCException, e:
-		sys.stdout.write('\r                                        \r%s' % e.error['message'])
-		sys.stdout.flush()
+		sysWrite('%s', e.error['message'])
 		sleep(2)
 		continue
 	except IOError:
-		sys.stdout.write('\r                                        \rUnable to communicate with bitcoin RPC')
-		sys.stdout.flush()
+		sysWrite('Unable to communicate with bitcoin RPC')
 		sleep(2)
 		continue
 
@@ -68,9 +74,12 @@ while True:
 		state  = np.array(unpack('IIIIIIII',         work['state'].decode('hex')),       dtype=np.uint32)
 		target = np.array(unpack('IIIIIIII',         work['target'].decode('hex')),      dtype=np.uint32)
 	except:
-		print '\nWrong data format from RPC!'
+		sysWriteLn('Wrong data format from RPC!')
 		sys.exit()
 
+	if (target[6] == 0):
+		sysWriteLn('Check if kernel does all sha256 rounds!')
+		
 	output[0] = base = 0
 
 	mf = cl.mem_flags
@@ -83,7 +92,7 @@ while True:
 	while True:
 		if (output[0]):
 			work['block'] = work['block'][:152] + pack('I', long(output[1])).encode('hex') + work['block'][160:]
-			sys.stdout.write('\r                                        \rfound: %s\n' % output[1])
+			sysWriteLn('found: %s, %s', (output[1], datetime.now().strftime("%d/%m/%Y %H:%M")))
 			break
 
 		if (time() - start > 10 or base + globalThreads == 0xFFFFFFFF):
@@ -105,5 +114,4 @@ while True:
 
 		if (time() - rate + frame > options.rate):
 			rate = time()
-			sys.stdout.write('\r                                        \r%s khash/s' % int((base / (time() - start)) / 1000))
-			sys.stdout.flush()
+			sysWrite('%s khash/s', int((base / (time() - start)) / 1000))
