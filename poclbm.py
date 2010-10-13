@@ -11,6 +11,16 @@ from jsonrpc import ServiceProxy
 from optparse import OptionParser
 from jsonrpc.proxy import JSONRPCException
 
+SHA256_K = [0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da, 0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070, 0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3, 0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2]
+def uint32(x):
+	return x & 0xffffffffL
+def rot(x, y):
+	return (x<<y | x>>(32-y))
+def sharound(a,b,c,d,e,f,g,h,x,K):
+	t1=h+(rot(e, 26)^rot(e, 21)^rot(e, 7))+(g^(e&(f^g)))+K+x
+	t2=(rot(a, 30)^rot(a, 19)^rot(a, 10))+((a&b)|(c&(a|b)))
+	return (uint32(d + t1), uint32(t1+t2))
+
 def sysWrite(format, args=()):
 	sys.stdout.write('\r                                        \r' + format % args)
 	sys.stdout.flush()
@@ -79,13 +89,22 @@ while True:
 
 	if (target[6] == 0):
 		sysWriteLn('Check if kernel does all sha256 rounds!')
-		
+	
+	state2 = np.array(state)
+
+	result = sharound(state2[0],state2[1],state2[2],state2[3],state2[4],state2[5],state2[6],state2[7],block2[0],0x428A2F98)
+	state2[3] = result[0]
+	state2[7] = result[1]
+	result = sharound(state2[7],state2[0],state2[1],state2[2],state2[3],state2[4],state2[5],state2[6],block2[1],0x71374491)
+	state2[2] = result[0]
+	state2[6] = result[1]
+	result = sharound(state2[6],state2[7],state2[0],state2[1],state2[2],state2[3],state2[4],state2[5],block2[2],0xB5C0FBCF)
+	state2[1] = result[0]
+	state2[5] = result[1]
+
 	output[0] = base = 0
 
 	mf = cl.mem_flags
-	block2_buf = cl.Buffer(context, mf.READ_ONLY  | mf.USE_HOST_PTR, hostbuf=block2)
-	state_buf  = cl.Buffer(context, mf.READ_ONLY  | mf.USE_HOST_PTR, hostbuf=state)
-	target_buf = cl.Buffer(context, mf.READ_ONLY  | mf.USE_HOST_PTR, hostbuf=target)
 	output_buf = cl.Buffer(context, mf.WRITE_ONLY | mf.USE_HOST_PTR, hostbuf=output)
 
 	rate = start = time()
@@ -103,7 +122,7 @@ while True:
 			base = 0xFFFFFFFF - globalThreads
 
 		kernelStart = time()
-		miner.search(queue, (globalThreads, ), (WORK_GROUP_SIZE, ), block2_buf, state_buf, target_buf, output_buf, pack('I', base))
+		miner.search(queue, (globalThreads, ), (WORK_GROUP_SIZE, ), block2[0], block2[1], block2[2], state[0], state[1], state[2], state[3], state[4], state[5], state[6], state[7], state2[1], state2[2], state2[3], state2[5], state2[6], state2[7], target[6], pack('I', base), output_buf)
 		cl.enqueue_read_buffer(queue, output_buf, output).wait()
 		kernelTime = time() - kernelStart
 

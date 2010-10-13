@@ -3,11 +3,14 @@
 #define R(x) (work[x] = (rot(work[x-2],15)^rot(work[x-2],13)^((work[x-2]&0xffffffff)>>10)) + work[x-7] + (rot(work[x-15],25)^rot(work[x-15],14)^((work[x-15]&0xffffffff)>>3)) + work[x-16])
 #define sharound(a,b,c,d,e,f,g,h,x,K) {t1=h+(rot(e, 26)^rot(e, 21)^rot(e, 7))+(g^(e&(f^g)))+K+x; t2=(rot(a, 30)^rot(a, 19)^rot(a, 10))+((a&b)|(c&(a|b))); d+=t1; h=t1+t2;}
 
-__kernel void search(	__constant uint * block,
-						__constant uint * state,
-						__constant uint * target,
-						__global uint * output,
-						const uint base)
+__kernel void search(	const uint block0, const uint block1, const uint block2,
+						const uint state0, const uint state1, const uint state2, const uint state3,
+						const uint state4, const uint state5, const uint state6, const uint state7,
+						const uint B1, const uint C1, const uint D1,
+						const uint F1, const uint G1, const uint H1,
+						const uint target,
+						const uint base,
+						__global uint * output)
 {
 	uint nonce = base + get_global_id(0);
 	
@@ -15,18 +18,18 @@ __kernel void search(	__constant uint * block,
     uint A,B,C,D,E,F,G,H;
 	uint t1,t2;
 	
-	A=state[0];
-	B=state[1];
-	C=state[2];
-	D=state[3];
-	E=state[4];
-	F=state[5];
-	G=state[6];
-	H=state[7];
+	A=state0;
+	B=B1;
+	C=C1;
+	D=D1;
+	E=state4;
+	F=F1;
+	G=G1;
+	H=H1;
 	
-	work[0]=block[0];
-	work[1]=block[1];
-	work[2]=block[2];
+	work[0]=block0;
+	work[1]=block1;
+	work[2]=block2;
 	work[3]=nonce;
 	work[4]=0x80000000;
 	work[5]=0x00000000;
@@ -41,9 +44,10 @@ __kernel void search(	__constant uint * block,
 	work[14]=0x00000000;
 	work[15]=0x00000280;
 
-	sharound(A,B,C,D,E,F,G,H,work[0],0x428A2F98);
-	sharound(H,A,B,C,D,E,F,G,work[1],0x71374491);
-	sharound(G,H,A,B,C,D,E,F,work[2],0xB5C0FBCF);
+	// first 3 rounds already done
+	//sharound(A,B,C,D,E,F,G,H,work[0],0x428A2F98);
+	//sharound(H,A,B,C,D,E,F,G,work[1],0x71374491);
+	//sharound(G,H,A,B,C,D,E,F,work[2],0xB5C0FBCF);
 	sharound(F,G,H,A,B,C,D,E,work[3],0xE9B5DBA5);
 	sharound(E,F,G,H,A,B,C,D,work[4],0x3956C25B);
 	sharound(D,E,F,G,H,A,B,C,work[5],0x59F111F1);
@@ -108,14 +112,14 @@ __kernel void search(	__constant uint * block,
 	
 	// hash the hash now
 	
-	work[0]=state[0]+A;
-	work[1]=state[1]+B;
-	work[2]=state[2]+C;
-	work[3]=state[3]+D;
-	work[4]=state[4]+E;
-	work[5]=state[5]+F;
-	work[6]=state[6]+G;
-	work[7]=state[7]+H;
+	work[0]=state0+A;
+	work[1]=state1+B;
+	work[2]=state2+C;
+	work[3]=state3+D;
+	work[4]=state4+E;
+	work[5]=state5+F;
+	work[6]=state6+G;
+	work[7]=state7+H;
 	work[8]=0x80000000;
 	work[9]=0x00000000;
 	work[10]=0x00000000;
@@ -203,7 +207,7 @@ __kernel void search(	__constant uint * block,
 	G+=0x1f83d9ab;
 	H+=0x5be0cd19;
 
-	if((H==0) && (bytereverse(G)<=target[6]))
+	if((H==0) && (bytereverse(G)<=target))
 	{
 		output[0] = 1;
 		output[1] = nonce;
