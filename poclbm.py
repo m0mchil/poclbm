@@ -33,10 +33,14 @@ parser.add_option('-u', '--user',     dest='user',     default='bitcoin',   help
 parser.add_option('--pass',           dest='password', default='password',  help='password')
 parser.add_option('-o', '--host',     dest='host',     default='127.0.0.1', help='RPC host')
 parser.add_option('-p', '--port',     dest='port',     default='8332',      help='RPC port')
-parser.add_option('-r', '--rate',     dest='rate',     default=1,           help='hash rate interval in seconds, default=1', type='float')
-parser.add_option('-f', '--frames',   dest='frames',   default=60,          help='will try to bring single kernel execution to 1/frames seconds, default=60, increase this for less desktop lag', type='int')
+parser.add_option('-r', '--rate',     dest='rate',     default=1,           help='hash rate display interval in seconds, default=1', type='float')
+parser.add_option('-f', '--frames',   dest='frames',   default=60,          help='will try to bring single kernel execution to 1/frames seconds, default=60, increase this for less desktop lag', type='float')
 parser.add_option('-d', '--device',   dest='device',   default=-1,          help='use device by id, by default asks for device', type='int')
+parser.add_option('-a', '--askrate',  dest='askrate',  default=10,          help='how many seconds between requests for work, default 10, max 30', type='int')
 (options, args) = parser.parse_args()
+options.frames = max(options.frames, 1.1)
+options.askrate = min(options.askrate, 30)
+options.rate = min(options.rate, options.askrate - 1)
 
 platform = cl.get_platforms()[0]
 if (options.device != -1):
@@ -60,7 +64,7 @@ upper = frame + window
 lower = frame - window
 
 unit = WORK_GROUP_SIZE * 256
-globalThreads = unit * 10
+globalThreads = unit
 
 bitcoin = ServiceProxy('http://' + options.user + ':' + options.password + '@' + options.host + ':' + options.port)
 
@@ -117,7 +121,7 @@ while True:
 			sysWriteLn('found: %s, %s', (output[1], datetime.now().strftime("%d/%m/%Y %H:%M")))
 			break
 
-		if (time() - start > 10 or base + globalThreads == 0xFFFFFFFF):
+		if (time() - start > options.askrate or base + globalThreads == 0xFFFFFFFF):
 			break
 
 		base += globalThreads
@@ -134,6 +138,6 @@ while True:
 		elif (kernelTime > upper and globalThreads != unit):
 			globalThreads -= unit
 
-		if (time() - rate + frame > options.rate):
+		if (time() - rate > options.rate):
 			rate = time()
 			sysWrite('%s khash/s', int((base / (time() - start)) / 1000))
