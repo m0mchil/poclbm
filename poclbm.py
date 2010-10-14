@@ -35,20 +35,23 @@ parser.add_option('-o', '--host',     dest='host',     default='127.0.0.1', help
 parser.add_option('-p', '--port',     dest='port',     default='8332',      help='RPC port')
 parser.add_option('-r', '--rate',     dest='rate',     default=1,           help='hash rate interval in seconds, default=1', type='float')
 parser.add_option('-f', '--frames',   dest='frames',   default=60,          help='will try to bring single kernel execution to 1/frames seconds, default=60, increase this for less desktop lag', type='int')
+parser.add_option('-d', '--device',   dest='device',   default=-1,          help='use device by id, by default asks for device', type='int')
 (options, args) = parser.parse_args()
 
 platform = cl.get_platforms()[0]
-devices = platform.get_devices(cl.device_type.GPU)
-context = cl.Context(devices, None, None)
+if (options.device != -1):
+	devices = platform.get_devices()
+	context = cl.Context([devices[options.device]], None, None)
+else:
+	print 'No device specified, you may use -d to specify one of the following\n'
+	context = cl.create_some_context()
 queue = cl.CommandQueue(context)
 
 kernelFile = open('btc_miner.cl', 'r')
 miner = cl.Program(context, kernelFile.read()).build()
 kernelFile.close()
 
-WORK_GROUP_SIZE = 0
-for device in devices:
-	WORK_GROUP_SIZE += miner.search.get_work_group_info(cl.kernel_work_group_info.WORK_GROUP_SIZE, device)
+WORK_GROUP_SIZE = miner.search.get_work_group_info(cl.kernel_work_group_info.WORK_GROUP_SIZE, context.devices[0])
 
 frames = options.frames
 frame = float(1)/frames
