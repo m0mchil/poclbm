@@ -37,8 +37,10 @@ parser.add_option('-r', '--rate',     dest='rate',     default=1,           help
 parser.add_option('-f', '--frames',   dest='frames',   default=60,          help='will try to bring single kernel execution to 1/frames seconds, default=60, increase this for less desktop lag', type='float')
 parser.add_option('-d', '--device',   dest='device',   default=-1,          help='use device by id, by default asks for device', type='int')
 parser.add_option('-a', '--askrate',  dest='askrate',  default=10,          help='how many seconds between requests for work, default 10, max 30', type='int')
+parser.add_option('-w', '--worksize', dest='worksize', default=-1,          help='work group size, default is maximum returned by opencl', type='int')
 (options, args) = parser.parse_args()
 options.frames = max(options.frames, 1.1)
+options.askrate = max(options.askrate, 1)
 options.askrate = min(options.askrate, 30)
 options.rate = min(options.rate, options.askrate - 1)
 
@@ -55,7 +57,8 @@ kernelFile = open('btc_miner.cl', 'r')
 miner = cl.Program(context, kernelFile.read()).build()
 kernelFile.close()
 
-WORK_GROUP_SIZE = miner.search.get_work_group_info(cl.kernel_work_group_info.WORK_GROUP_SIZE, context.devices[0])
+if (options.worksize == -1):
+	options.worksize = miner.search.get_work_group_info(cl.kernel_work_group_info.WORK_GROUP_SIZE, context.devices[0])
 
 frames = options.frames
 frame = float(1)/frames
@@ -63,7 +66,7 @@ window = frame/30
 upper = frame + window
 lower = frame - window
 
-unit = WORK_GROUP_SIZE * 256
+unit = options.worksize * 256
 globalThreads = unit
 
 bitcoin = ServiceProxy('http://' + options.user + ':' + options.password + '@' + options.host + ':' + options.port)
@@ -98,7 +101,6 @@ while True:
 		sysWriteLn('Check if kernel does all sha256 rounds!')
 	
 	state2 = np.array(state)
-
 	result = sharound(state2[0],state2[1],state2[2],state2[3],state2[4],state2[5],state2[6],state2[7],block2[0],0x428A2F98)
 	state2[3] = result[0]
 	state2[7] = result[1]
@@ -121,15 +123,15 @@ while True:
 			sysWriteLn('found: %s, %s', (output[1], datetime.now().strftime("%d/%m/%Y %H:%M")))
 			break
 
-		if (time() - start > options.askrate or base + globalThreads == 0xFFFFFFFF):
+		if (time() - start > options.askrate or base + globalThreads == 0x7FFFFFFF):
 			break
 
 		base += globalThreads
-		if (base + globalThreads > 0xFFFFFFFF):
-			base = 0xFFFFFFFF - globalThreads
+		if (base + globalThreads > 0x7FFFFFFF):
+			base = 0x7FFFFFFF - globalThreads
 
 		kernelStart = time()
-		miner.search(queue, (globalThreads, ), (WORK_GROUP_SIZE, ), block2[0], block2[1], block2[2], state[0], state[1], state[2], state[3], state[4], state[5], state[6], state[7], state2[1], state2[2], state2[3], state2[5], state2[6], state2[7], target[6], pack('I', base), output_buf)
+		miner.search(queue, (globalThreads, ), (options.worksize, ), block2[0], block2[1], block2[2], state[0], state[1], state[2], state[3], state[4], state[5], state[6], state[7], state2[1], state2[2], state2[3], state2[5], state2[6], state2[7], target[6], pack('I', base), output_buf)
 		cl.enqueue_read_buffer(queue, output_buf, output).wait()
 		kernelTime = time() - kernelStart
 
@@ -140,4 +142,4 @@ while True:
 
 		if (time() - rate > options.rate):
 			rate = time()
-			sysWrite('%s khash/s', int((base / (time() - start)) / 1000))
+			sysWrite('%s khash/s', int((base / (time() - start)) / 500))
