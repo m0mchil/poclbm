@@ -1,7 +1,22 @@
 #define bytereverse(x) ( ((x) << 24) | (((x) << 8) & 0x00ff0000) | (((x) >> 8) & 0x0000ff00) | ((x) >> 24) )
-#define rot(x, y) rotate(x, (uint)y)
+#define rot(x, y) rotate(x, (uint2)y)
 #define R(x) (work[x] = (rot(work[x-2],15)^rot(work[x-2],13)^((work[x-2])>>10)) + work[x-7] + (rot(work[x-15],25)^rot(work[x-15],14)^((work[x-15])>>3)) + work[x-16])
 #define sharound(a,b,c,d,e,f,g,h,x,K) {h=(h+(rot(e, 26)^rot(e, 21)^rot(e, 7))+(g^(e&(f^g)))+K+x); t1=(rot(a, 30)^rot(a, 19)^rot(a, 10))+((a&b)|(c&(a|b))); d+=h; h+=t1;}
+
+int belowOrEquals(const uint x, const uint target)
+{
+	uchar* b = (uchar *)&x;
+	uchar* l = (uchar *)&target;
+	if(b[0] < l[3]) return 1;
+	if(b[0] > l[3]) return 0;
+	if(b[1] < l[2]) return 1;
+	if(b[1] > l[2]) return 0;
+	if(b[2] < l[1]) return 1;
+	if(b[2] > l[1]) return 0;
+	if(b[3] < l[0]) return 1;
+	if(b[3] > l[0]) return 0;
+	return 1;
+}
 
 __kernel void search(	const uint block0, const uint block1, const uint block2,
 						const uint state0, const uint state1, const uint state2, const uint state3,
@@ -209,13 +224,21 @@ __kernel void search(	const uint block0, const uint block1, const uint block2,
 	G+=0x1f83d9ab;
 	H+=0x5be0cd19;
 
+#ifdef NVIDIA
+	if((H.x==0) && (belowOrEquals(G.x, target)))
+#else
 	if((H.x==0) && (bytereverse(G.x)<=target))
+#endif
 	{
 		output[0] = 1;
 		output[1] = nonce.x;
 	}
 
+#ifdef NVIDIA
+	if((H.y==0) && (belowOrEquals(G.y, target)))
+#else
 	if((H.y==0) && (bytereverse(G.y)<=target))
+#endif
 	{
 		output[0] = 1;
 		output[1] = nonce.y;
