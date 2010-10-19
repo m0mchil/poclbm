@@ -11,7 +11,7 @@ from jsonrpc import ServiceProxy
 from optparse import OptionParser
 from jsonrpc.proxy import JSONRPCException
 
-SHA256_K = [0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da, 0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070, 0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3, 0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2]
+
 def uint32(x):
 	return x & 0xffffffffL
 def rot(x, y):
@@ -36,13 +36,12 @@ parser.add_option('-p', '--port',     dest='port',     default='8332',      help
 parser.add_option('-r', '--rate',     dest='rate',     default=1,           help='hash rate display interval in seconds, default=1', type='float')
 parser.add_option('-f', '--frames',   dest='frames',   default=60,          help='will try to bring single kernel execution to 1/frames seconds, default=60, increase this for less desktop lag', type='float')
 parser.add_option('-d', '--device',   dest='device',   default=-1,          help='use device by id, by default asks for device', type='int')
-parser.add_option('-a', '--askrate',  dest='askrate',  default=10,          help='how many seconds between requests for work, default 10, max 30', type='int')
+parser.add_option('-a', '--askrate',  dest='askrate',  default=5,           help='how many seconds between getwork requests, default 5, max 30', type='int')
 parser.add_option('-w', '--worksize', dest='worksize', default=-1,          help='work group size, default is maximum returned by opencl', type='int')
 (options, args) = parser.parse_args()
 options.frames = max(options.frames, 1.1)
 options.askrate = max(options.askrate, 1)
 options.askrate = min(options.askrate, 30)
-options.rate = min(options.rate, options.askrate - 1)
 
 platform = cl.get_platforms()[0]
 if (options.device != -1):
@@ -52,9 +51,11 @@ else:
 	print 'No device specified, you may use -d to specify one of the following\n'
 	context = cl.create_some_context()
 queue = cl.CommandQueue(context)
-
+defines = ''
+if (platform.name.lower().find('nvidia') != -1):
+	defines = '-DNVIDIA'
 kernelFile = open('btc_miner.cl', 'r')
-miner = cl.Program(context, kernelFile.read()).build()
+miner = cl.Program(context, kernelFile.read()).build(defines)
 kernelFile.close()
 
 if (options.worksize == -1):
@@ -74,8 +75,10 @@ bitcoin = ServiceProxy('http://' + options.user + ':' + options.password + '@' +
 work = {}
 work['extraNonce'] = 0
 work['block'] = ''
-
 output = np.zeros(2, np.uint32)
+
+threadsRun = 0
+rate = time()
 
 while True:
 	try:
@@ -101,22 +104,14 @@ while True:
 		sysWriteLn('Check if kernel does all sha256 rounds!')
 	
 	state2 = np.array(state)
-	result = sharound(state2[0],state2[1],state2[2],state2[3],state2[4],state2[5],state2[6],state2[7],block2[0],0x428A2F98)
-	state2[3] = result[0]
-	state2[7] = result[1]
-	result = sharound(state2[7],state2[0],state2[1],state2[2],state2[3],state2[4],state2[5],state2[6],block2[1],0x71374491)
-	state2[2] = result[0]
-	state2[6] = result[1]
-	result = sharound(state2[6],state2[7],state2[0],state2[1],state2[2],state2[3],state2[4],state2[5],block2[2],0xB5C0FBCF)
-	state2[1] = result[0]
-	state2[5] = result[1]
+	(state2[3], state2[7]) = sharound(state2[0],state2[1],state2[2],state2[3],state2[4],state2[5],state2[6],state2[7],block2[0],0x428A2F98)
+	(state2[2], state2[6]) = sharound(state2[7],state2[0],state2[1],state2[2],state2[3],state2[4],state2[5],state2[6],block2[1],0x71374491)
+	(state2[1], state2[5]) = sharound(state2[6],state2[7],state2[0],state2[1],state2[2],state2[3],state2[4],state2[5],block2[2],0xB5C0FBCF)
 
 	output[0] = base = 0
+	output_buf = cl.Buffer(context, cl.mem_flags.WRITE_ONLY | cl.mem_flags.USE_HOST_PTR, hostbuf=output)
 
-	mf = cl.mem_flags
-	output_buf = cl.Buffer(context, mf.WRITE_ONLY | mf.USE_HOST_PTR, hostbuf=output)
-
-	rate = start = time()
+	start = time()
 	while True:
 		if (output[0]):
 			work['block'] = work['block'][:152] + pack('I', long(output[1])).encode('hex') + work['block'][160:]
@@ -131,9 +126,14 @@ while True:
 			base = 0x7FFFFFFF - globalThreads
 
 		kernelStart = time()
-		miner.search(queue, (globalThreads, ), (options.worksize, ), block2[0], block2[1], block2[2], state[0], state[1], state[2], state[3], state[4], state[5], state[6], state[7], state2[1], state2[2], state2[3], state2[5], state2[6], state2[7], target[6], pack('I', base), output_buf)
+		miner.search(	queue, (globalThreads, ), (options.worksize, ),
+						block2[0], block2[1], block2[2],
+						state[0], state[1], state[2], state[3], state[4], state[5], state[6], state[7],
+						state2[1], state2[2], state2[3], state2[5], state2[6], state2[7],
+						target[6], pack('I', base), output_buf)
 		cl.enqueue_read_buffer(queue, output_buf, output).wait()
 		kernelTime = time() - kernelStart
+		threadsRun += globalThreads
 
 		if (kernelTime < lower):
 			globalThreads += unit
@@ -141,5 +141,6 @@ while True:
 			globalThreads -= unit
 
 		if (time() - rate > options.rate):
+			sysWrite('%s khash/s', int((threadsRun / (time() - rate)) / 500))
+			threadsRun = 0
 			rate = time()
-			sysWrite('%s khash/s', int((base / (time() - start)) / 500))
