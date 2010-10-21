@@ -118,12 +118,12 @@ while True:
 			sysWriteLn('found: %s, %s', (output[1], datetime.now().strftime("%d/%m/%Y %H:%M")))
 			break
 
-		if (time() - start > options.askrate or base + globalThreads == 0x7FFFFFFF):
+		if (time() - start > options.askrate or base + globalThreads == 0xFFFFFFFF):
 			break
 
 		base += globalThreads
-		if (base + globalThreads > 0x7FFFFFFF):
-			base = 0x7FFFFFFF - globalThreads
+		if (base + globalThreads > 0xFFFFFFFF):
+			base = 0xFFFFFFFF - globalThreads
 
 		kernelStart = time()
 		miner.search(	queue, (globalThreads, ), (options.worksize, ),
@@ -141,6 +141,6 @@ while True:
 			globalThreads -= unit
 
 		if (time() - rate > options.rate):
-			sysWrite('%s khash/s', int((threadsRun / (time() - rate)) / 500))
+			sysWrite('%s khash/s', int((threadsRun / (time() - rate)) / 1000))
 			threadsRun = 0
 			rate = time()
