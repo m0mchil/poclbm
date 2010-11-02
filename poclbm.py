@@ -28,6 +28,12 @@ def sysWrite(format, args=()):
 def sysWriteLn(format, args=()):
 	sysWrite(format + '\n', args)
 
+def if_else(condition, trueVal, falseVal):
+	if condition:
+		return trueVal
+	else:
+		return falseVal
+
 parser = OptionParser()
 parser.add_option('-u', '--user',     dest='user',     default='bitcoin',   help='user name')
 parser.add_option('--pass',           dest='password', default='password',  help='password')
@@ -38,10 +44,13 @@ parser.add_option('-f', '--frames',   dest='frames',   default=60,          help
 parser.add_option('-d', '--device',   dest='device',   default=-1,          help='use device by id, by default asks for device', type='int')
 parser.add_option('-a', '--askrate',  dest='askrate',  default=5,           help='how many seconds between getwork requests, default 5, max 30', type='int')
 parser.add_option('-w', '--worksize', dest='worksize', default=-1,          help='work group size, default is maximum returned by opencl', type='int')
+parser.add_option('-v', '--vectors',  dest='vectors',  action='store_true', help='use vectors')
 (options, args) = parser.parse_args()
 options.frames = max(options.frames, 1.1)
 options.askrate = max(options.askrate, 1)
 options.askrate = min(options.askrate, 30)
+
+defines = if_else(options.vectors, '-DVECTORS', '')
 
 platform = cl.get_platforms()[0]
 if (options.device != -1):
@@ -51,9 +60,8 @@ else:
 	print 'No device specified, you may use -d to specify one of the following\n'
 	context = cl.create_some_context()
 queue = cl.CommandQueue(context)
-defines = ''
 if (platform.name.lower().find('nvidia') != -1):
-	defines = '-DNVIDIA'
+	defines += ' -DNVIDIA'
 kernelFile = open('btc_miner.cl', 'r')
 miner = cl.Program(context, kernelFile.read()).build(defines)
 kernelFile.close()
@@ -67,6 +75,8 @@ window = frame/30
 upper = frame + window
 lower = frame - window
 
+maxBase = if_else(options.vectors, 0x7fffffff, 0xffffffff)
+rateDivisor = if_else(options.vectors, 500, 1000)
 unit = options.worksize * 256
 globalThreads = unit
 
@@ -114,16 +124,16 @@ while True:
 	start = time()
 	while True:
 		if (output[0]):
-			work['block'] = work['block'][:152] + pack('I', long(output[1])).encode('hex') + work['block'][160:]
-			sysWriteLn('found: %s, %s', (output[1], datetime.now().strftime("%d/%m/%Y %H:%M")))
+			work['block'] = work['block'][:152] + pack('I', long(output[0])).encode('hex') + work['block'][160:]
+			sysWriteLn('found: %s, %s', (output[0], datetime.now().strftime("%d/%m/%Y %H:%M")))
 			break
 
-		if (time() - start > options.askrate or base + globalThreads == 0xFFFFFFFF):
+		if (time() - start > options.askrate or base + globalThreads == maxBase):
 			break
 
 		base += globalThreads
-		if (base + globalThreads > 0xFFFFFFFF):
-			base = 0xFFFFFFFF - globalThreads
+		if (base + globalThreads > maxBase):
+			base = maxBase - globalThreads
 
 		kernelStart = time()
 		miner.search(	queue, (globalThreads, ), (options.worksize, ),
@@ -141,6 +151,6 @@ while True:
 			globalThreads -= unit
 
 		if (time() - rate > options.rate):
-			sysWrite('%s khash/s', int((threadsRun / (time() - rate)) / 1000))
+			sysWrite('%s khash/s', int((threadsRun / (time() - rate)) / rateDivisor))
 			threadsRun = 0
 			rate = time()

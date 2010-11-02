@@ -1,22 +1,35 @@
-#define bytereverse(x) ( ((x) << 24) | (((x) << 8) & 0x00ff0000) | (((x) >> 8) & 0x0000ff00) | ((x) >> 24) )
 #define rot(x, y) rotate(x, (uint)y)
 #define R(x) (work[x] = (rot(work[x-2],15)^rot(work[x-2],13)^((work[x-2])>>10)) + work[x-7] + (rot(work[x-15],25)^rot(work[x-15],14)^((work[x-15])>>3)) + work[x-16])
 #define sharound(a,b,c,d,e,f,g,h,x,K) {h=(h+(rot(e, 26)^rot(e, 21)^rot(e, 7))+(g^(e&(f^g)))+K+x); t1=(rot(a, 30)^rot(a, 19)^rot(a, 10))+((a&b)|(c&(a|b))); d+=h; h+=t1;}
 
-int belowOrEquals(const uint x, const uint target)
+#ifdef NVIDIA
+bool belowOrEquals(const uint x, const uint target)
 {
 	uchar* b = (uchar *)&x;
 	uchar* l = (uchar *)&target;
-	if(b[0] < l[3]) return 1;
-	if(b[0] > l[3]) return 0;
-	if(b[1] < l[2]) return 1;
-	if(b[1] > l[2]) return 0;
-	if(b[2] < l[1]) return 1;
-	if(b[2] > l[1]) return 0;
-	if(b[3] < l[0]) return 1;
-	if(b[3] > l[0]) return 0;
-	return 1;
+	if(b[0] < l[3]) return true;
+	if(b[0] > l[3]) return false;
+	if(b[1] < l[2]) return true;
+	if(b[1] > l[2]) return false;
+	if(b[2] < l[1]) return true;
+	if(b[2] > l[1]) return false;
+	if(b[3] < l[0]) return true;
+	if(b[3] > l[0]) return false;
+	return true;
 }
+#else
+#define bytereverse(x) ( ((x) << 24) | (((x) << 8) & 0x00ff0000) | (((x) >> 8) & 0x0000ff00) | ((x) >> 24) )
+bool belowOrEquals(const uint x, const uint target)
+{
+	return bytereverse(x)<=target;
+}
+#endif
+
+#ifdef VECTORS
+typedef uint2 u;
+#else
+typedef uint u;
+#endif
 
 __kernel void search(	const uint block0, const uint block1, const uint block2,
 						const uint state0, const uint state1, const uint state2, const uint state3,
@@ -27,11 +40,17 @@ __kernel void search(	const uint block0, const uint block1, const uint block2,
 						const uint base,
 						__global uint * output)
 {
-	uint nonce = base + get_global_id(0);
-	
-	uint work[64];
-    uint A,B,C,D,E,F,G,H;
-	uint t1;
+	u nonce;
+#ifdef VECTORS	
+	nonce.x = base + get_global_id(0);
+	nonce.y = nonce.x + 0x80000000;
+#else
+	nonce = base + get_global_id(0);
+#endif
+
+	u work[64];
+    u A,B,C,D,E,F,G,H;
+	u t1;
 	
 	A=state0;
 	B=B1;
@@ -124,9 +143,7 @@ __kernel void search(	const uint block0, const uint block1, const uint block2,
 	sharound(D,E,F,G,H,A,B,C,R(61),0xA4506CEB);
 	sharound(C,D,E,F,G,H,A,B,R(62),0xBEF9A3F7);
 	sharound(B,C,D,E,F,G,H,A,R(63),0xC67178F2);
-	
-	// hash the hash now
-	
+
 	work[0]=state0+A;
 	work[1]=state1+B;
 	work[2]=state2+C;
@@ -143,7 +160,7 @@ __kernel void search(	const uint block0, const uint block1, const uint block2,
 	work[13]=0x00000000;
 	work[14]=0x00000000;
 	work[15]=0x00000100;
-	
+
 	A=0x6a09e667;
 	B=0xbb67ae85;
 	C=0x3c6ef372;
@@ -152,7 +169,7 @@ __kernel void search(	const uint block0, const uint block1, const uint block2,
 	F=0x9b05688c;
 	G=0x1f83d9ab;
 	H=0x5be0cd19;
-	
+
 	sharound(A,B,C,D,E,F,G,H,work[0],0x428A2F98);
 	sharound(H,A,B,C,D,E,F,G,work[1],0x71374491);
 	sharound(G,H,A,B,C,D,E,F,work[2],0xB5C0FBCF);
@@ -222,15 +239,21 @@ __kernel void search(	const uint block0, const uint block1, const uint block2,
 	G+=0x1f83d9ab;
 	H+=0x5be0cd19;
 
-#ifdef NVIDIA
-	if((H==0) && (belowOrEquals(G, target)))
-#else
-	if((H==0) && (bytereverse(G)<=target))
-#endif
+#ifdef VECTORS
+	if((H.x==0) && (belowOrEquals(G.x, target)))
 	{
-		output[0] = 1;
-		output[1] = nonce;
+		output[0] = nonce.x;
 	}
+	if((H.y==0) && (belowOrEquals(G.y, target)))
+	{
+		output[0] = nonce.y;
+	}
+#else
+	if((H==0) && (belowOrEquals(G, target)))
+	{
+		output[0] = nonce;
+	}
+#endif
 }
 
 // end
