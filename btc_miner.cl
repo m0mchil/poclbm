@@ -1,4 +1,16 @@
-#define rot(x, y) rotate(x, (uint)y)
+#ifdef VECTORS
+typedef uint2 u;
+#else
+typedef uint u;
+#endif
+
+#ifdef OLD_STREAM
+#pragma OPENCL EXTENSION cl_amd_media_ops : enable
+#define rot(x, y) amd_bitalign(x, x, (u)(32-y))
+#else
+#define rot(x, y) rotate(x, (u)y)
+#endif
+
 #define R(x) (work[x] = (rot(work[x-2],15)^rot(work[x-2],13)^((work[x-2])>>10)) + work[x-7] + (rot(work[x-15],25)^rot(work[x-15],14)^((work[x-15])>>3)) + work[x-16])
 #define sharound(a,b,c,d,e,f,g,h,x,K) {h=(h+(rot(e, 26)^rot(e, 21)^rot(e, 7))+(g^(e&(f^g)))+K+x); t1=(rot(a, 30)^rot(a, 19)^rot(a, 10))+((a&b)|(c&(a|b))); d+=h; h+=t1;}
 
@@ -23,12 +35,6 @@ bool belowOrEquals(const uint x, const uint target)
 {
 	return bytereverse(x)<=target;
 }
-#endif
-
-#ifdef VECTORS
-typedef uint2 u;
-#else
-typedef uint u;
 #endif
 
 __kernel void search(	const uint block0, const uint block1, const uint block2,

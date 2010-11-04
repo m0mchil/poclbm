@@ -57,11 +57,15 @@ if (options.device != -1):
 	devices = platform.get_devices()
 	context = cl.Context([devices[options.device]], None, None)
 else:
-	print 'No device specified, you may use -d to specify one of the following\n'
+	print 'No device specified, you may use -d to specify ONLY ONE of the following\n'
 	context = cl.create_some_context()
 queue = cl.CommandQueue(context)
 if (platform.name.lower().find('nvidia') != -1):
 	defines += ' -DNVIDIA'
+else:
+	stream = platform.version.find('ATI-Stream')
+	if(stream != -1 and float(platform.version[stream+12:stream+15]) < 2.2):
+		defines += ' -DOLD_STREAM'
 kernelFile = open('btc_miner.cl', 'r')
 miner = cl.Program(context, kernelFile.read()).build(defines)
 kernelFile.close()
