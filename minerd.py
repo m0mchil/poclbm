@@ -4,15 +4,16 @@ from multiprocessing import Process
 from configobj import ConfigObj
 
 import os
-import time
 import logging as log
+import smtplib
+from email.mime.text import MIMEText
 
 import sys
 import numpy as np
 import pyopencl as cl
 
 from struct import *
-from time import sleep, time
+from time import sleep, time, strftime
 from datetime import datetime
 from jsonrpc import ServiceProxy
 from optparse import OptionParser
@@ -39,6 +40,17 @@ def if_else(condition, trueVal, falseVal):
 		return trueVal
 	else:
 		return falseVal
+
+def sendEmail(config, subject, message):
+        msg = MIMEText(message)
+        msg['Subject'] = subject
+        msg['From'] = config['emailFrom']
+        msg['To'] = config['emailTo']
+
+        s = smtplib.SMTP('localhost')
+        s.sendmail(msg['From'], [msg['To']], msg.as_string())
+        s.quit()
+        
 
 def worker(device, config):
     log.debug('Worker starting on device '+device)
@@ -126,7 +138,9 @@ def worker(device, config):
 		if (output[0]):
 			work['block'] = work['block'][:152] + pack('I', long(output[0])).encode('hex') + work['block'][160:]
 			# sysWriteLn('found: %s, %s', (output[0], datetime.now().strftime("%d/%m/%Y %H:%M")))
-                        log.info('Device['+str(device)+'] found a block: '+str(output[0]))
+                        foundInfo = 'Device['+str(device)+'] found a block: '+str(output[0])
+                        log.info(foundInfo)
+                        sendEmail(config, 'Miner found a block', foundInfo)
 			break
 
 		if (time() - start > int(config['askrate']) or base + globalThreads == maxBase):
@@ -161,7 +175,11 @@ def worker(device, config):
     ## END WORKER
                    
 config = ConfigObj('default.cfg')
-log.basicConfig(filename=config['logfile'],level=log.INFO,format='%(asctime)s %(levelname)-8s %(message)s',datefmt='%Y-%m-%d %H:%M:%S')
+logfile = config['logfile']+'_'+strftime("%Y-%m-%d_%H%M%S")+'.log'
+log.basicConfig(filename=logfile,level=log.INFO,format='%(asctime)s %(levelname)-8s %(message)s',datefmt='%Y-%m-%d %H:%M:%S')
+if os.path.isfile('last.log'):
+        os.remove('last.log')
+os.symlink(logfile, 'last.log')
 
 config['frames'] = max(int(config['frames']), 1.1)
 config['askrate'] = max(int(config['askrate']), 1)
