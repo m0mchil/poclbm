@@ -55,7 +55,8 @@ def sendEmail(config, subject, message):
 def worker(device, config):
     log.debug('Worker starting on device '+device)
     log.debug('Setting DISPLAY variable for device '+device)
-    os.environ['DISPLAY'] = ':0.'+device
+    #os.environ['DISPLAY'] = ':0.'+device
+    os.environ['DISPLAY'] = ':0'
     log.debug('Confirming environment: '+os.environ['DISPLAY'])
     log.debug('Checking that device is found now that DISPLAY is set')
 
@@ -64,7 +65,7 @@ def worker(device, config):
     platform = cl.get_platforms()[0]
 
     devices = platform.get_devices()
-    context = cl.Context([devices[1]], None, None)
+    context = cl.Context([devices[int(device)+1]], None, None)
     queue = cl.CommandQueue(context)
     if (platform.name.lower().find('nvidia') != -1):
 	defines += ' -DNVIDIA'
