@@ -4,7 +4,7 @@ typedef uint2 u;
 typedef uint u;
 #endif
 
-#ifdef OLD_STREAM
+#ifdef BITALIGN
 #pragma OPENCL EXTENSION cl_amd_media_ops : enable
 #define rot(x, y) amd_bitalign(x, x, (u)(32-y))
 #else
