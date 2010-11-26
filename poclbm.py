@@ -62,7 +62,7 @@ else:
 queue = cl.CommandQueue(context)
 if (platform.name.lower().find('nvidia') != -1):
 	defines += ' -DNVIDIA'
-elif (context.devices[0].extensions.find('cl_amd_media_ops')):
+elif (context.devices[0].extensions.find('cl_amd_media_ops') != -1):
 	defines += ' -DBITALIGN'
 kernelFile = open('btc_miner.cl', 'r')
 miner = cl.Program(context, kernelFile.read()).build(defines)
