@@ -50,7 +50,7 @@ options.frames = max(options.frames, 1.1)
 options.askrate = max(options.askrate, 1)
 options.askrate = min(options.askrate, 30)
 
-defines = if_else(options.vectors, '-DVECTORS', '')
+(defines, maxBase, rateDivisor) = if_else(options.vectors, ('-DVECTORS', 0x7fffffff, 500), ('', 0xffffffff, 1000))
 
 platform = cl.get_platforms()[0]
 if (options.device != -1):
@@ -62,10 +62,8 @@ else:
 queue = cl.CommandQueue(context)
 if (platform.name.lower().find('nvidia') != -1):
 	defines += ' -DNVIDIA'
-else:
-	stream = platform.version.find('ATI-Stream')
-	if(stream != -1 and float(platform.version[stream+12:stream+15]) < 2.2):
-		defines += ' -DOLD_STREAM'
+elif (context.devices[0].extensions.find('cl_amd_media_ops') != -1):
+	defines += ' -DBITALIGN'
 kernelFile = open('btc_miner.cl', 'r')
 miner = cl.Program(context, kernelFile.read()).build(defines)
 kernelFile.close()
@@ -79,24 +77,21 @@ window = frame/30
 upper = frame + window
 lower = frame - window
 
-maxBase = if_else(options.vectors, 0x7fffffff, 0xffffffff)
-rateDivisor = if_else(options.vectors, 500, 1000)
 unit = options.worksize * 256
 globalThreads = unit
 
 bitcoin = ServiceProxy('http://' + options.user + ':' + options.password + '@' + options.host + ':' + options.port)
 
 work = {}
-work['extraNonce'] = 0
-work['block'] = ''
+work['data'] = ''
 output = np.zeros(2, np.uint32)
 
 threadsRun = 0
-rate = time()
+lastRate = time()
 
 while True:
 	try:
-		work = bitcoin.getwork(work['extraNonce'], work['block'])
+		work = bitcoin.getwork()
 	except JSONRPCException, e:
 		sysWrite('%s', e.error['message'])
 		sleep(2)
@@ -107,15 +102,12 @@ while True:
 		continue
 
 	try:
-		block2 = np.array(unpack('IIIIIIIIIIIIIIII', work['block'][128:].decode('hex')), dtype=np.uint32)
-		state  = np.array(unpack('IIIIIIII',         work['state'].decode('hex')),       dtype=np.uint32)
+		block2 = np.array(unpack('IIIIIIIIIIIIIIII', work['data'][128:].decode('hex')), dtype=np.uint32)
+		state  = np.array(unpack('IIIIIIII',         work['midstate'].decode('hex')),       dtype=np.uint32)
 		target = np.array(unpack('IIIIIIII',         work['target'].decode('hex')),      dtype=np.uint32)
 	except:
 		sysWriteLn('Wrong data format from RPC!')
 		sys.exit()
-
-	if (target[6] == 0):
-		sysWriteLn('Check if kernel does all sha256 rounds!')
 	
 	state2 = np.array(state)
 	(state2[3], state2[7]) = sharound(state2[0],state2[1],state2[2],state2[3],state2[4],state2[5],state2[6],state2[7],block2[0],0x428A2F98)
@@ -128,8 +120,9 @@ while True:
 	start = time()
 	while True:
 		if (output[0]):
-			work['block'] = work['block'][:152] + pack('I', long(output[0])).encode('hex') + work['block'][160:]
+			work['data'] = work['data'][:152] + pack('I', long(output[0])).encode('hex') + work['data'][160:]
 			sysWriteLn('found: %s, %s', (output[0], datetime.now().strftime("%d/%m/%Y %H:%M")))
+			bitcoin.getwork(work['data'])
 			break
 
 		if (time() - start > options.askrate or base + globalThreads == maxBase):
@@ -154,7 +147,7 @@ while True:
 		elif (kernelTime > upper and globalThreads != unit):
 			globalThreads -= unit
 
-		if (time() - rate > options.rate):
-			sysWrite('%s khash/s', int((threadsRun / (time() - rate)) / rateDivisor))
+		if (time() - lastRate > options.rate):
+			sysWrite('%s khash/s', int((threadsRun / (time() - lastRate)) / rateDivisor))
 			threadsRun = 0
-			rate = time()
+			lastRate = time()
