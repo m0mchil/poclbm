@@ -1,1 +1,4 @@
 *.log
+*.pyc
+minerd.py
+*.cfg
