@@ -1,24 +1,8 @@
 #!/usr/bin/python
 
-import sys
-import numpy as np
 import pyopencl as cl
-
-from struct import *
-from time import sleep, time
-from datetime import datetime
-from jsonrpc import ServiceProxy
 from optparse import OptionParser
-from jsonrpc.proxy import JSONRPCException
-
 from BitcoinMiner import *
-
-def sysWrite(format, args=()):
-        sys.stdout.write('\r                                        \r' + format % args)
-        sys.stdout.flush()
-
-def sysWriteLn(format, args=()):
-        sysWrite(format + '\n', args)
 
 parser = OptionParser()
 parser.add_option('-u', '--user',     dest='user',     default='bitcoin',   help='user name')
