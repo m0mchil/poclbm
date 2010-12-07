@@ -50,7 +50,7 @@ class BitcoinMiner:
 		elif (self.context.devices[0].extensions.find('cl_amd_media_ops') != -1):
 			defines += ' -DBITALIGN'
 			
-		kernelFile = open('btc_miner.cl', 'r')
+		kernelFile = open('BitcoinMiner.cl', 'r')
 		self.miner = cl.Program(self.context, kernelFile.read()).build(defines)
 		kernelFile.close()
 
