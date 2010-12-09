@@ -44,10 +44,8 @@ class BitcoinMiner:
 		self.rate = float(rate)
 		self.askrate = int(askrate)
 		self.worksize = int(worksize)
-		
-		if (platform.name.lower().find('nvidia') != -1):
-			defines += ' -DNVIDIA'
-		elif (self.context.devices[0].extensions.find('cl_amd_media_ops') != -1):
+
+		if (self.context.devices[0].extensions.find('cl_amd_media_ops') != -1):
 			defines += ' -DBITALIGN'
 			
 		kernelFile = open('BitcoinMiner.cl', 'r')
@@ -74,14 +72,14 @@ class BitcoinMiner:
 	def sayLine(self, format, args=()):
 		self.say(format + '\n', args)
 
-	def blockFound(self, output):
+	def blockFound(self, hash, accepted):
 		# designed to be overridden
-		self.sayLine('found: %s, %s', (output, datetime.now().strftime("%d/%m/%Y %H:%M")))
+		self.sayLine('%s, %s, %s', (datetime.now().strftime("%d/%m/%Y %H:%M"), hash, if_else(accepted, 'accepted', 'invalid or stale')))
 	
 	def mine(self):
 		work = {}
 		work['data'] = ''
-		output = np.zeros(1, np.uint32)
+		output = np.zeros(2, np.uint32)
 		output_buf = cl.Buffer(self.context, cl.mem_flags.WRITE_ONLY | cl.mem_flags.USE_HOST_PTR, hostbuf=output)
 
 		queue = cl.CommandQueue(self.context)
@@ -113,11 +111,10 @@ class BitcoinMiner:
 			start = lastNTime = time()
 			while True:
 				if (output[0]):
-					work['data'] = work['data'][:136] + pack('I', long(data[1])).encode('hex') + work['data'][144:152] + pack('I', long(output[0])).encode('hex') + work['data'][160:]
-					self.blockFound(output[0])
-					output[0] = 0
+					work['data'] = work['data'][:136] + pack('I', long(data[1])).encode('hex') + work['data'][144:152] + pack('I', long(output[1])).encode('hex') + work['data'][160:]
+					self.blockFound(pack('I', long(output[0])).encode('hex'), self.bitcoin.getwork(work['data']))
+					output.fill(0)
 					cl.enqueue_write_buffer(queue, output_buf, output)
-					self.bitcoin.getwork(work['data'])
 					break
 
 				if (time() - start > self.askrate):
@@ -134,7 +131,7 @@ class BitcoinMiner:
 									data[0], data[1], data[2],
 									state[0], state[1], state[2], state[3], state[4], state[5], state[6], state[7],
 									state2[1], state2[2], state2[3], state2[5], state2[6], state2[7],
-									target[6], pack('I', base), output_buf)
+									target[6], target[7], pack('I', base), output_buf)
 				cl.enqueue_read_buffer(queue, output_buf, output)
 				queue.finish()
 				kernelTime = time() - kernelStart

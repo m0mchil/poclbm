@@ -14,35 +14,39 @@ typedef uint u;
 #define R(x) (work[x] = (rot(work[x-2],15)^rot(work[x-2],13)^((work[x-2])>>10)) + work[x-7] + (rot(work[x-15],25)^rot(work[x-15],14)^((work[x-15])>>3)) + work[x-16])
 #define sharound(a,b,c,d,e,f,g,h,x,K) {h=(h+(rot(e, 26)^rot(e, 21)^rot(e, 7))+(g^(e&(f^g)))+K+x); t1=(rot(a, 30)^rot(a, 19)^rot(a, 10))+((a&b)|(c&(a|b))); d+=h; h+=t1;}
 
-#ifdef NVIDIA
-bool belowOrEquals(const uint x, const uint target)
+uint belowOrEquals(const uint H, const uint targetH, const uint G, const uint targetG)
 {
-	uchar* b = (uchar *)&x;
-	uchar* l = (uchar *)&target;
-	if(b[0] < l[3]) return true;
-	if(b[0] > l[3]) return false;
-	if(b[1] < l[2]) return true;
-	if(b[1] > l[2]) return false;
-	if(b[2] < l[1]) return true;
-	if(b[2] > l[1]) return false;
-	if(b[3] < l[0]) return true;
-	if(b[3] > l[0]) return false;
-	return true;
+	uchar* b = (uchar *)&H;
+	uchar* l = (uchar *)&targetH;
+	if(b[0] < l[3]) return H;
+	if(b[0] > l[3]) return 0;
+	if(b[1] < l[2]) return H;
+	if(b[1] > l[2]) return 0;
+	if(b[2] < l[1]) return H;
+	if(b[2] > l[1]) return 0;
+	if(b[3] < l[0]) return H;
+	if(b[3] > l[0]) return 0;
+
+	b = (uchar *)&G;
+	l = (uchar *)&targetG;
+	if(b[0] < l[3]) return G;
+	if(b[0] > l[3]) return 0;
+	if(b[1] < l[2]) return G;
+	if(b[1] > l[2]) return 0;
+	if(b[2] < l[1]) return G;
+	if(b[2] > l[1]) return 0;
+	if(b[3] < l[0]) return G;
+	if(b[3] > l[0]) return 0;
+
+	return G;
 }
-#else
-#define bytereverse(x) ( ((x) << 24) | (((x) << 8) & 0x00ff0000) | (((x) >> 8) & 0x0000ff00) | ((x) >> 24) )
-bool belowOrEquals(const uint x, const uint target)
-{
-	return bytereverse(x)<=target;
-}
-#endif
 
 __kernel void search(	const uint block0, const uint block1, const uint block2,
 						const uint state0, const uint state1, const uint state2, const uint state3,
 						const uint state4, const uint state5, const uint state6, const uint state7,
 						const uint B1, const uint C1, const uint D1,
 						const uint F1, const uint G1, const uint H1,
-						const uint target,
+						const uint targetG, const uint targetH,
 						const uint base,
 						__global uint * output)
 {
@@ -245,21 +249,24 @@ __kernel void search(	const uint block0, const uint block1, const uint block2,
 	G+=0x1f83d9ab;
 	H+=0x5be0cd19;
 
+	uint result;
+
 #ifdef VECTORS
-	if((H.x==0) && (belowOrEquals(G.x, target)))
+	if (result = belowOrEquals(H.x, targetH, G.x, targetG))
 	{
-		output[0] = nonce.x;
+		output[0] = result;
+		output[1] = nonce.x;
 	}
-	if((H.y==0) && (belowOrEquals(G.y, target)))
+	else if (result = belowOrEquals(H.y, targetH, G.y, targetG))
 	{
-		output[0] = nonce.y;
+		output[0] = result;
+		output[1] = nonce.y;
 	}
 #else
-	if((H==0) && (belowOrEquals(G, target)))
+	if (result = belowOrEquals(H, targetH, G, targetG))
 	{
-		output[0] = nonce;
+		output[0] = result;
+		output[1] = nonce;
 	}
 #endif
 }
-
-// end
