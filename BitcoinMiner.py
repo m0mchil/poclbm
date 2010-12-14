@@ -34,7 +34,7 @@ def if_else(condition, trueVal, falseVal):
 		return falseVal
 
 def bytereverse(x):
-	return ( ((x) << 24) | (((x) << 8) & 0x00ff0000) | (((x) >> 8) & 0x0000ff00) | ((x) >> 24) )
+	return uint32(( ((x) << 24) | (((x) << 8) & 0x00ff0000) | (((x) >> 8) & 0x0000ff00) | ((x) >> 24) ))
 
 class BitcoinMiner:
 	def __init__(self, platform, context, host, user, password, port=8332, frames=60, rate=1, askrate=5, worksize=-1, vectors=False):
@@ -121,7 +121,7 @@ class BitcoinMiner:
 					break
 
 				if (time() - lastNTime > 1):
-					data[1] = uint32(bytereverse(bytereverse(data[1]) + 1))
+					data[1] = bytereverse(bytereverse(data[1]) + 1)
 					state2 = partial(state, data)
 					lastNTime = time()
 
