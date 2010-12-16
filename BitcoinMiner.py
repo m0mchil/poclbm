@@ -7,6 +7,7 @@ from time import sleep, time
 from datetime import datetime
 from jsonrpc import ServiceProxy
 from jsonrpc.proxy import JSONRPCException
+from jsonrpc.json import JSONDecodeException
 
 
 def uint32(x):
@@ -78,7 +79,6 @@ class BitcoinMiner:
 	
 	def mine(self):
 		work = {}
-		work['data'] = ''
 		output = np.zeros(2, np.uint32)
 		output_buf = cl.Buffer(self.context, cl.mem_flags.WRITE_ONLY | cl.mem_flags.USE_HOST_PTR, hostbuf=output)
 
@@ -88,13 +88,13 @@ class BitcoinMiner:
 		lastRate = time()
 		while True:
 			try:
+				work.clear()
 				work = self.bitcoin.getwork()
 			except JSONRPCException, e:
 				self.say('%s', e.error['message'])
-				sleep(2)
-				continue
-			except IOError:
-				self.say('Unable to communicate with bitcoin RPC')
+			except (JSONDecodeException, IOError):
+				self.say('Problems communicating with bitcoin RPC')
+			if not work:
 				sleep(2)
 				continue
 			
@@ -112,8 +112,14 @@ class BitcoinMiner:
 			while True:
 				if (output[0]):
 					work['data'] = work['data'][:136] + pack('I', long(data[1])).encode('hex') + work['data'][144:152] + pack('I', long(output[1])).encode('hex') + work['data'][160:]
-					self.blockFound(pack('I', long(output[0])).encode('hex'), self.bitcoin.getwork(work['data']))
-					output.fill(0)
+					try:
+						result = self.bitcoin.getwork(work['data'])
+					except (StandardError, JSONDecodeException) as e:
+						self.sayLine(str(e))
+						self.sayLine('Solution lost!')
+					else:
+						self.blockFound(pack('I', long(output[0])).encode('hex'), result)
+					output[0] = 0
 					cl.enqueue_write_buffer(queue, output_buf, output)
 					break
 
