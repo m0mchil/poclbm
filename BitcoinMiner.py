@@ -3,6 +3,9 @@ import numpy as np
 import pyopencl as cl
 
 from struct import *
+from Queue import Queue
+from Queue import Empty
+from threading import Thread
 from time import sleep, time
 from datetime import datetime
 from jsonrpc import ServiceProxy
@@ -37,14 +40,16 @@ def if_else(condition, trueVal, falseVal):
 def bytereverse(x):
 	return uint32(( ((x) << 24) | (((x) << 8) & 0x00ff0000) | (((x) >> 8) & 0x0000ff00) | ((x) >> 24) ))
 
-class BitcoinMiner:
+class BitcoinMiner(Thread):
 	def __init__(self, platform, context, host, user, password, port=8332, frames=60, rate=1, askrate=5, worksize=-1, vectors=False):
+		Thread.__init__(self)
 		(defines, self.rateDivisor) = if_else(vectors, ('-DVECTORS', 500), ('', 1000))
 
 		self.context = context
 		self.rate = float(rate)
 		self.askrate = int(askrate)
 		self.worksize = int(worksize)
+		self.frames = frames
 
 		if (self.context.devices[0].extensions.find('cl_amd_media_ops') != -1):
 			defines += ' -DBITALIGN'
@@ -56,13 +61,8 @@ class BitcoinMiner:
 		if (self.worksize == -1):
 			self.worksize = self.miner.search.get_work_group_info(cl.kernel_work_group_info.WORK_GROUP_SIZE, self.context.devices[0])
 
-		frame = float(1)/float(frames)
-		window = frame/30
-		self.upper = frame + window
-		self.lower = frame - window
-
-		self.unit = self.worksize * 256
-		self.globalThreads = self.unit
+		self.workQueue = Queue()
+		self.resultQueue = Queue()
 
 		self.bitcoin = ServiceProxy('http://%s:%s@%s:%s' % (user, password, host, port))
 
@@ -76,79 +76,116 @@ class BitcoinMiner:
 	def blockFound(self, hash, accepted):
 		# designed to be overridden
 		self.sayLine('%s, %s, %s', (datetime.now().strftime("%d/%m/%Y %H:%M"), hash, if_else(accepted, 'accepted', 'invalid or stale')))
-	
+
 	def mine(self):
-		work = {}
+		self.start()
+
+		lastWork = 0
+		work = result = None
+		try:
+			while True:
+				if not work:
+					try:
+						work = self.bitcoin.getwork()
+					except JSONRPCException, e:
+						self.say('%s', e.error['message'])
+					except (JSONDecodeException, IOError):
+						self.say('Problems communicating with bitcoin RPC')
+
+				try:
+					result = self.resultQueue.get(True, 1)
+				except Empty:
+					pass
+
+				if result or (time() - lastWork > self.askrate):
+					self.workQueue.put(work)
+					lastWork = time()
+					work = None
+					if result:
+						try:
+							accepted = self.bitcoin.getwork(result['data'])
+						except (JSONDecodeException, IOError):
+							self.say('Problems communicating with bitcoin RPC')
+						else:
+							self.blockFound(pack('I', long(result['hash'])).encode('hex'), accepted)
+						result = None
+		except KeyboardInterrupt:
+			print '\nbye'
+			self.workQueue.put('stop')
+
+	def run(self):
+		frame = float(1)/float(self.frames)
+		window = frame/30
+		upper = frame + window
+		lower = frame - window
+
+		unit = self.worksize * 256
+		globalThreads = unit
+		
+		queue = cl.CommandQueue(self.context)
+
+		base = lastRate = threadsRun = lastNTime = 0
 		output = np.zeros(2, np.uint32)
 		output_buf = cl.Buffer(self.context, cl.mem_flags.WRITE_ONLY | cl.mem_flags.USE_HOST_PTR, hostbuf=output)
 
-		queue = cl.CommandQueue(self.context)
-
-		base = threadsRun = 0
-		lastRate = time()
+		work = None
 		while True:
-			try:
-				work.clear()
-				work = self.bitcoin.getwork()
-			except JSONRPCException, e:
-				self.say('%s', e.error['message'])
-			except (JSONDecodeException, IOError):
-				self.say('Problems communicating with bitcoin RPC')
-			if not work:
-				sleep(2)
-				continue
-			
-			try:
-				data   = np.array(unpack('IIIIIIIIIIIIIIII', work['data'][128:].decode('hex')), dtype=np.uint32)
-				state  = np.array(unpack('IIIIIIII',         work['midstate'].decode('hex')),   dtype=np.uint32)
-				target = np.array(unpack('IIIIIIII',         work['target'].decode('hex')),     dtype=np.uint32)
-			except:
-				self.sayLine('Wrong data format from RPC!')
-				sys.exit()
-
-			state2 = partial(state, data)
-
-			start = lastNTime = time()
-			while True:
-				if (output[0]):
-					work['data'] = work['data'][:136] + pack('I', long(data[1])).encode('hex') + work['data'][144:152] + pack('I', long(output[1])).encode('hex') + work['data'][160:]
+			if (not work) or (not self.workQueue.empty()):
+				try:
+					work = self.workQueue.get(True, 1)
+				except Empty:
+					continue
+				else:
+					if not work:
+						continue
+					if work == 'stop':
+						return
 					try:
-						result = self.bitcoin.getwork(work['data'])
-					except (StandardError, JSONDecodeException) as e:
-						self.sayLine(str(e))
-						self.sayLine('Solution lost!')
-					else:
-						self.blockFound(pack('I', long(output[0])).encode('hex'), result)
-					output[0] = 0
-					cl.enqueue_write_buffer(queue, output_buf, output)
-					break
+						data   = np.array(unpack('IIIIIIIIIIIIIIII', work['data'][128:].decode('hex')), dtype=np.uint32)
+						state  = np.array(unpack('IIIIIIII',         work['midstate'].decode('hex')),   dtype=np.uint32)
+						target = np.array(unpack('IIIIIIII',         work['target'].decode('hex')),     dtype=np.uint32)
+						state2 = partial(state, data)
+					except Exception as e:
+						self.sayLine('Wrong data format from RPC!')
+						sys.exit()
 
-				if (time() - start > self.askrate):
-					break
+			kernelStart = time()
+			self.miner.search(	queue, (globalThreads, ), (self.worksize, ),
+								data[0], data[1], data[2],
+								state[0], state[1], state[2], state[3], state[4], state[5], state[6], state[7],
+								state2[1], state2[2], state2[3], state2[5], state2[6], state2[7],
+								target[6], target[7], pack('I', base), output_buf)
+			cl.enqueue_read_buffer(queue, output_buf, output)
 
-				if (time() - lastNTime > 1):
-					data[1] = bytereverse(bytereverse(data[1]) + 1)
-					state2 = partial(state, data)
-					lastNTime = time()
+			if (time() - lastRate > self.rate):
+				self.say('%s khash/s', int((threadsRun / (time() - lastRate)) / self.rateDivisor))
+				threadsRun = 0
+				lastRate = time()
 
-				base = uint32(base + self.globalThreads)
-				kernelStart = time()
-				self.miner.search(	queue, (self.globalThreads, ), (self.worksize, ),
-									data[0], data[1], data[2],
-									state[0], state[1], state[2], state[3], state[4], state[5], state[6], state[7],
-									state2[1], state2[2], state2[3], state2[5], state2[6], state2[7],
-									target[6], target[7], pack('I', base), output_buf)
-				cl.enqueue_read_buffer(queue, output_buf, output)
-				queue.finish()
-				kernelTime = time() - kernelStart
-				threadsRun += self.globalThreads
+			queue.finish()
+			kernelTime = time() - kernelStart
 
-				if (kernelTime < self.lower):
-					self.globalThreads += self.unit
-				elif (kernelTime > self.upper and self.globalThreads > self.unit):
-					self.globalThreads -= self.unit
+			threadsRun += globalThreads
+			base = uint32(base + globalThreads)
 
-				if (time() - lastRate > self.rate):
-					self.say('%s khash/s', int((threadsRun / (time() - lastRate)) / self.rateDivisor))
-					threadsRun = 0
-					lastRate = time()
+			if (kernelTime < lower):
+				globalThreads += unit
+			elif (kernelTime > upper and globalThreads > unit):
+				globalThreads -= unit
+
+			if output[0]:
+				result = {}
+				d = work['data']
+				d = d[:136] + pack('I', long(data[1])).encode('hex') + d[144:152] + pack('I', long(output[1])).encode('hex') + d[160:]
+				result['data'] = d
+				result['hash'] = output[0]
+				self.resultQueue.put(result)
+				output[0] = 0
+				cl.enqueue_write_buffer(queue, output_buf, output)
+				work = None
+				continue
+
+			if (time() - lastNTime > 1):
+				data[1] = bytereverse(bytereverse(data[1]) + 1)
+				state2 = partial(state, data)
+				lastNTime = time()
