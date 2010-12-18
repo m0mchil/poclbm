@@ -110,8 +110,9 @@ class BitcoinMiner(Thread):
 							self.blockFound(pack('I', long(result['hash'])).encode('hex'), accepted)
 						result = None
 		except KeyboardInterrupt:
-			print '\nbye'
 			self.workQueue.put('stop')
+			print '\nbye'
+			sleep(0.1)
 
 	def run(self):
 		frame = float(1)/float(self.frames)
@@ -138,7 +139,7 @@ class BitcoinMiner(Thread):
 				else:
 					if not work:
 						continue
-					if work == 'stop':
+					elif work == 'stop':
 						return
 					try:
 						data   = np.array(unpack('IIIIIIIIIIIIIIII', work['data'][128:].decode('hex')), dtype=np.uint32)
