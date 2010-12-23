@@ -183,8 +183,6 @@ class BitcoinMiner(Thread):
 				self.resultQueue.put(result)
 				output[0] = 0
 				cl.enqueue_write_buffer(queue, output_buf, output)
-				work = None
-				continue
 
 			if (time() - lastNTime > 1):
 				data[1] = bytereverse(bytereverse(data[1]) + 1)
