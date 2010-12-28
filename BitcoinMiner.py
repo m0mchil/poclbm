@@ -77,6 +77,17 @@ class BitcoinMiner(Thread):
 		# designed to be overridden
 		self.sayLine('%s, %s, %s', (datetime.now().strftime("%d/%m/%Y %H:%M"), hash, if_else(accepted, 'accepted', 'invalid or stale')))
 
+	def getwork(self, data=None):
+		try:
+			if data:
+				return self.bitcoin.getwork(data)
+			else:
+				return self.bitcoin.getwork()
+		except JSONRPCException, e:
+			self.say('%s', e.error['message'])
+		except (JSONDecodeException, IOError):
+			self.say('Problems communicating with bitcoin RPC')
+
 	def mine(self):
 		self.start()
 
@@ -85,12 +96,7 @@ class BitcoinMiner(Thread):
 		try:
 			while True:
 				if not work:
-					try:
-						work = self.bitcoin.getwork()
-					except JSONRPCException, e:
-						self.say('%s', e.error['message'])
-					except (JSONDecodeException, IOError):
-						self.say('Problems communicating with bitcoin RPC')
+					work = self.getwork()
 
 				try:
 					result = self.resultQueue.get(True, 1)
@@ -102,11 +108,8 @@ class BitcoinMiner(Thread):
 					lastWork = time()
 					work = None
 					if result:
-						try:
-							accepted = self.bitcoin.getwork(result['data'])
-						except (JSONDecodeException, IOError):
-							self.say('Problems communicating with bitcoin RPC')
-						else:
+						accepted = self.getwork(result['data'])
+						if accepted != None:
 							self.blockFound(pack('I', long(result['hash'])).encode('hex'), accepted)
 						result = None
 		except KeyboardInterrupt:
