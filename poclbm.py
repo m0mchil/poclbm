@@ -16,9 +16,6 @@ parser.add_option('-a', '--askrate',  dest='askrate',  default=5,           help
 parser.add_option('-w', '--worksize', dest='worksize', default=-1,          help='work group size, default is maximum returned by opencl', type='int')
 parser.add_option('-v', '--vectors',  dest='vectors',  action='store_true', help='use vectors')
 (options, args) = parser.parse_args()
-options.frames = max(options.frames, 1.1)
-options.askrate = max(options.askrate, 1)
-options.askrate = min(options.askrate, 30)
 
 platform = cl.get_platforms()[0]
 devices = platform.get_devices()

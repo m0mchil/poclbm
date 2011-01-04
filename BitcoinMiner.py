@@ -37,9 +37,10 @@ class BitcoinMiner(Thread):
 
 		self.context = context
 		self.rate = float(rate)
-		self.askrate = int(askrate)
+		self.askrate = max(int(askrate), 1)
+		self.askrate = min(self.askrate, 10)
 		self.worksize = int(worksize)
-		self.frames = frames
+		self.frames = max(frames, 1)
 
 		if (self.context.devices[0].extensions.find('cl_amd_media_ops') != -1):
 			defines += ' -DBITALIGN'
@@ -105,7 +106,7 @@ class BitcoinMiner(Thread):
 		except KeyboardInterrupt:
 			self.workQueue.put('stop')
 			print '\nbye'
-			sleep(0.1)
+			sleep(1.1)
 
 	def run(self):
 		frame = float(1)/float(self.frames)
