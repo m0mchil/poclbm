@@ -1,4 +1,5 @@
 import sys
+import socket
 import numpy as np
 import pyopencl as cl
 
@@ -33,6 +34,7 @@ def if_else(condition, trueVal, falseVal):
 class BitcoinMiner(Thread):
 	def __init__(self, platform, context, host, user, password, port=8332, frames=60, rate=1, askrate=5, worksize=-1, vectors=False):
 		Thread.__init__(self)
+		socket.setdefaulttimeout(5)
 		(defines, self.rateDivisor) = if_else(vectors, ('-DVECTORS', 500), ('', 1000))
 
 		self.context = context
@@ -84,8 +86,8 @@ class BitcoinMiner(Thread):
 
 		lastWork = 0
 		work = result = None
-		try:
-			while True:
+		while True:
+			try:
 				if not work:
 					work = self.getwork()
 
@@ -102,11 +104,16 @@ class BitcoinMiner(Thread):
 						accepted = self.getwork(result['data'])
 						if accepted != None:
 							self.blockFound(pack('I', long(result['hash'])).encode('hex'), accepted)
+						else:
+							self.resultQueue.put(result)
 						result = None
-		except KeyboardInterrupt:
-			self.workQueue.put('stop')
-			print '\nbye'
-			sleep(1.1)
+			except KeyboardInterrupt:
+				print '\nbye'
+				self.workQueue.put('stop')
+				sleep(1.1)
+				break
+			except:
+				self.sayLine("Unexpected error: %s", sys.exc_info()[0])
 
 	def run(self):
 		frame = float(1)/float(self.frames)
@@ -119,7 +126,7 @@ class BitcoinMiner(Thread):
 		
 		queue = cl.CommandQueue(self.context)
 
-		base = lastRate = threadsRun = lastNTime = 0
+		base = lastRate = threadsRun = 0
 		output = np.zeros(2, np.uint32)
 		output_buf = cl.Buffer(self.context, cl.mem_flags.WRITE_ONLY | cl.mem_flags.USE_HOST_PTR, hostbuf=output)
 
@@ -155,6 +162,9 @@ class BitcoinMiner(Thread):
 								target[6], target[7], pack('I', base), output_buf)
 			cl.enqueue_read_buffer(queue, output_buf, output)
 
+			threadsRun += globalThreads
+			base = uint32(base + globalThreads)
+
 			if (time() - lastRate > self.rate):
 				self.say('%s khash/s', int((threadsRun / (time() - lastRate)) / self.rateDivisor))
 				threadsRun = 0
@@ -163,20 +173,15 @@ class BitcoinMiner(Thread):
 			queue.finish()
 			kernelTime = time() - kernelStart
 
-			threadsRun += globalThreads
-			base = uint32(base + globalThreads)
+			if output[0]:
+				result = {}
+				result['data'] = work['data'][:152] + pack('I', long(output[1])).encode('hex') + work['data'][160:]
+				result['hash'] = output[0]
+				self.resultQueue.put(result)
+				output[0] = 0
+				cl.enqueue_write_buffer(queue, output_buf, output)
 
 			if (kernelTime < lower):
 				globalThreads += unit
 			elif (kernelTime > upper and globalThreads > unit):
 				globalThreads -= unit
-
-			if output[0]:
-				result = {}
-				d = work['data']
-				d = d[:152] + pack('I', long(output[1])).encode('hex') + d[160:]
-				result['data'] = d
-				result['hash'] = output[0]
-				self.resultQueue.put(result)
-				output[0] = 0
-				cl.enqueue_write_buffer(queue, output_buf, output)
