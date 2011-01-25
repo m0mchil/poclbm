@@ -4,15 +4,24 @@ typedef uint2 u;
 typedef uint u;
 #endif
 
+__constant uint K[64] = { 
+    0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+    0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+    0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+    0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+    0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+    0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+    0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+    0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
+};
+
 #ifdef BITALIGN
 #pragma OPENCL EXTENSION cl_amd_media_ops : enable
-#define rot(x, y) amd_bitalign(x, x, (u)(32-y))
+#define rotr(x, y) amd_bitalign((u)x, (u)x, (u)y)
 #else
-#define rot(x, y) rotate(x, (u)y)
+#define rotr(x, y) rotate((u)x, (u)(32-y))
 #endif
 
-#define R(x) (work[x] = (rot(work[x-2],15)^rot(work[x-2],13)^((work[x-2])>>10U)) + work[x-7] + (rot(work[x-15],25)^rot(work[x-15],14)^((work[x-15])>>3U)) + work[x-16])
-#define sharound(a,b,c,d,e,f,g,h,x,K) {h=(h+(rot(e, 26)^rot(e, 21)^rot(e, 7))+(g^(e&(f^g)))+K+x); t1=(rot(a, 30)^rot(a, 19)^rot(a, 10))+((a&b)|(c&(a|b))); d+=h; h+=t1;}
 
 uint belowOrEquals(const uint H, const uint targetH, const uint G, const uint targetG)
 {
@@ -41,210 +50,247 @@ uint belowOrEquals(const uint H, const uint targetH, const uint G, const uint ta
 	return G;
 }
 
-__kernel void search(	const uint block0, const uint block1, const uint block2,
-						const uint state0, const uint state1, const uint state2, const uint state3,
+__kernel void search(	const uint state0, const uint state1, const uint state2, const uint state3,
 						const uint state4, const uint state5, const uint state6, const uint state7,
 						const uint B1, const uint C1, const uint D1,
 						const uint F1, const uint G1, const uint H1,
 						const uint targetG, const uint targetH,
 						const uint base,
+						const uint fW0, const uint fW1, const uint fW2, const uint fW3, const uint fW15, const uint fW01r, const uint fcty_e, const uint fcty_e2,
 						__global uint * output)
 {
+	u W0, W1, W2, W3, W4, W5, W6, W7, W8, W9, W10, W11, W12, W13, W14, W15;
+	u A,B,C,D,E,F,G,H;
 	u nonce;
-#ifdef VECTORS
-	nonce.x = base + get_global_id(0);
-	nonce.y = nonce.x + 0x80000000U;
+
+#ifdef VECTORS 
+	nonce = base + get_global_id(0) + (uint2)(0, 0x80000000U);
 #else
 	nonce = base + get_global_id(0);
 #endif
 
-	u work[64];
-	u A,B,C,D,E,F,G,H;
-	u t1;
-	
-	A=state0;
-	B=B1;
-	C=C1;
-	D=D1;
-	E=state4;
-	F=F1;
-	G=G1;
-	H=H1;
-	
-	work[0]=block0;
-	work[1]=block1;
-	work[2]=block2;
-	work[3]=nonce;
-	work[4]=0x80000000U;
-	work[5]=0x00000000U;
-	work[6]=0x00000000U;
-	work[7]=0x00000000U;
-	work[8]=0x00000000U;
-	work[9]=0x00000000U;
-	work[10]=0x00000000U;
-	work[11]=0x00000000U;
-	work[12]=0x00000000U;
-	work[13]=0x00000000U;
-	work[14]=0x00000000U;
-	work[15]=0x00000280U;
+	W3 = nonce;
 
-	// first 3 rounds already done
-	//sharound(A,B,C,D,E,F,G,H,work[0],0x428A2F98);
-	//sharound(H,A,B,C,D,E,F,G,work[1],0x71374491);
-	//sharound(G,H,A,B,C,D,E,F,work[2],0xB5C0FBCF);
-	sharound(F,G,H,A,B,C,D,E,work[3],0xE9B5DBA5U);
-	sharound(E,F,G,H,A,B,C,D,work[4],0x3956C25BU);
-	sharound(D,E,F,G,H,A,B,C,work[5],0x59F111F1U);
-	sharound(C,D,E,F,G,H,A,B,work[6],0x923F82A4U);
-	sharound(B,C,D,E,F,G,H,A,work[7],0xAB1C5ED5U);
-	sharound(A,B,C,D,E,F,G,H,work[8],0xD807AA98U);
-	sharound(H,A,B,C,D,E,F,G,work[9],0x12835B01U);
-	sharound(G,H,A,B,C,D,E,F,work[10],0x243185BEU);
-	sharound(F,G,H,A,B,C,D,E,work[11],0x550C7DC3U);
-	sharound(E,F,G,H,A,B,C,D,work[12],0x72BE5D74U);
-	sharound(D,E,F,G,H,A,B,C,work[13],0x80DEB1FEU);
-	sharound(C,D,E,F,G,H,A,B,work[14],0x9BDC06A7U);
-	sharound(B,C,D,E,F,G,H,A,work[15],0xC19BF174U);
-	sharound(A,B,C,D,E,F,G,H,R(16),0xE49B69C1U);
-	sharound(H,A,B,C,D,E,F,G,R(17),0xEFBE4786U);
-	sharound(G,H,A,B,C,D,E,F,R(18),0x0FC19DC6U);
-	sharound(F,G,H,A,B,C,D,E,R(19),0x240CA1CCU);
-	sharound(E,F,G,H,A,B,C,D,R(20),0x2DE92C6FU);
-	sharound(D,E,F,G,H,A,B,C,R(21),0x4A7484AAU);
-	sharound(C,D,E,F,G,H,A,B,R(22),0x5CB0A9DCU);
-	sharound(B,C,D,E,F,G,H,A,R(23),0x76F988DAU);
-	sharound(A,B,C,D,E,F,G,H,R(24),0x983E5152U);
-	sharound(H,A,B,C,D,E,F,G,R(25),0xA831C66DU);
-	sharound(G,H,A,B,C,D,E,F,R(26),0xB00327C8U);
-	sharound(F,G,H,A,B,C,D,E,R(27),0xBF597FC7U);
-	sharound(E,F,G,H,A,B,C,D,R(28),0xC6E00BF3U);
-	sharound(D,E,F,G,H,A,B,C,R(29),0xD5A79147U);
-	sharound(C,D,E,F,G,H,A,B,R(30),0x06CA6351U);
-	sharound(B,C,D,E,F,G,H,A,R(31),0x14292967U);
-	sharound(A,B,C,D,E,F,G,H,R(32),0x27B70A85U);
-	sharound(H,A,B,C,D,E,F,G,R(33),0x2E1B2138U);
-	sharound(G,H,A,B,C,D,E,F,R(34),0x4D2C6DFCU);
-	sharound(F,G,H,A,B,C,D,E,R(35),0x53380D13U);
-	sharound(E,F,G,H,A,B,C,D,R(36),0x650A7354U);
-	sharound(D,E,F,G,H,A,B,C,R(37),0x766A0ABBU);
-	sharound(C,D,E,F,G,H,A,B,R(38),0x81C2C92EU);
-	sharound(B,C,D,E,F,G,H,A,R(39),0x92722C85U);
-	sharound(A,B,C,D,E,F,G,H,R(40),0xA2BFE8A1U);
-	sharound(H,A,B,C,D,E,F,G,R(41),0xA81A664BU);
-	sharound(G,H,A,B,C,D,E,F,R(42),0xC24B8B70U);
-	sharound(F,G,H,A,B,C,D,E,R(43),0xC76C51A3U);
-	sharound(E,F,G,H,A,B,C,D,R(44),0xD192E819U);
-	sharound(D,E,F,G,H,A,B,C,R(45),0xD6990624U);
-	sharound(C,D,E,F,G,H,A,B,R(46),0xF40E3585U);
-	sharound(B,C,D,E,F,G,H,A,R(47),0x106AA070U);
-	sharound(A,B,C,D,E,F,G,H,R(48),0x19A4C116U);
-	sharound(H,A,B,C,D,E,F,G,R(49),0x1E376C08U);
-	sharound(G,H,A,B,C,D,E,F,R(50),0x2748774CU);
-	sharound(F,G,H,A,B,C,D,E,R(51),0x34B0BCB5U);
-	sharound(E,F,G,H,A,B,C,D,R(52),0x391C0CB3U);
-	sharound(D,E,F,G,H,A,B,C,R(53),0x4ED8AA4AU);
-	sharound(C,D,E,F,G,H,A,B,R(54),0x5B9CCA4FU);
-	sharound(B,C,D,E,F,G,H,A,R(55),0x682E6FF3U);
-	sharound(A,B,C,D,E,F,G,H,R(56),0x748F82EEU);
-	sharound(H,A,B,C,D,E,F,G,R(57),0x78A5636FU);
-	sharound(G,H,A,B,C,D,E,F,R(58),0x84C87814U);
-	sharound(F,G,H,A,B,C,D,E,R(59),0x8CC70208U);
-	sharound(E,F,G,H,A,B,C,D,R(60),0x90BEFFFAU);
-	sharound(D,E,F,G,H,A,B,C,R(61),0xA4506CEBU);
-	sharound(C,D,E,F,G,H,A,B,R(62),0xBEF9A3F7U);
-	sharound(B,C,D,E,F,G,H,A,R(63),0xC67178F2U);
+	E = fcty_e +  W3; A = state0 + E; E = E + fcty_e2;
+	D = D1 + (rotr(A, 6) ^ rotr(A, 11) ^ rotr(A, 25)) + (C1 ^ (A & (B1 ^ C1))) + K[ 4] +  0x80000000; H = H1 + D; D = D + (rotr(E, 2) ^ rotr(E, 13) ^ rotr(E, 22)) + ((E & F1) | (G1 & (E | F1)));
+	C = C1 + (rotr(H, 6) ^ rotr(H, 11) ^ rotr(H, 25)) + (B1 ^ (H & (A ^ B1))) + K[ 5]; G = G1 + C; C = C + (rotr(D, 2) ^ rotr(D, 13) ^ rotr(D, 22)) + ((D & E) | (F1 & (D | E)));
+	B = B1 + (rotr(G, 6) ^ rotr(G, 11) ^ rotr(G, 25)) + (A ^ (G & (H ^ A))) + K[ 6]; F = F1 + B; B = B + (rotr(C, 2) ^ rotr(C, 13) ^ rotr(C, 22)) + ((C & D) | (E & (C | D)));
+	A = A + (rotr(F, 6) ^ rotr(F, 11) ^ rotr(F, 25)) + (H ^ (F & (G ^ H))) + K[ 7]; E = E + A; A = A + (rotr(B, 2) ^ rotr(B, 13) ^ rotr(B, 22)) + ((B & C) | (D & (B | C)));
+	H = H + (rotr(E, 6) ^ rotr(E, 11) ^ rotr(E, 25)) + (G ^ (E & (F ^ G))) + K[ 8]; D = D + H; H = H + (rotr(A, 2) ^ rotr(A, 13) ^ rotr(A, 22)) + ((A & B) | (C & (A | B)));
+	G = G + (rotr(D, 6) ^ rotr(D, 11) ^ rotr(D, 25)) + (F ^ (D & (E ^ F))) + K[ 9]; C = C + G; G = G + (rotr(H, 2) ^ rotr(H, 13) ^ rotr(H, 22)) + ((H & A) | (B & (H | A)));
+	F = F + (rotr(C, 6) ^ rotr(C, 11) ^ rotr(C, 25)) + (E ^ (C & (D ^ E))) + K[10]; B = B + F; F = F + (rotr(G, 2) ^ rotr(G, 13) ^ rotr(G, 22)) + ((G & H) | (A & (G | H)));
+	E = E + (rotr(B, 6) ^ rotr(B, 11) ^ rotr(B, 25)) + (D ^ (B & (C ^ D))) + K[11]; A = A + E; E = E + (rotr(F, 2) ^ rotr(F, 13) ^ rotr(F, 22)) + ((F & G) | (H & (F | G)));
+	D = D + (rotr(A, 6) ^ rotr(A, 11) ^ rotr(A, 25)) + (C ^ (A & (B ^ C))) + K[12]; H = H + D; D = D + (rotr(E, 2) ^ rotr(E, 13) ^ rotr(E, 22)) + ((E & F) | (G & (E | F)));
+	C = C + (rotr(H, 6) ^ rotr(H, 11) ^ rotr(H, 25)) + (B ^ (H & (A ^ B))) + K[13]; G = G + C; C = C + (rotr(D, 2) ^ rotr(D, 13) ^ rotr(D, 22)) + ((D & E) | (F & (D | E)));
+	B = B + (rotr(G, 6) ^ rotr(G, 11) ^ rotr(G, 25)) + (A ^ (G & (H ^ A))) + K[14]; F = F + B; B = B + (rotr(C, 2) ^ rotr(C, 13) ^ rotr(C, 22)) + ((C & D) | (E & (C | D)));
+	A = A + (rotr(F, 6) ^ rotr(F, 11) ^ rotr(F, 25)) + (H ^ (F & (G ^ H))) + K[15] + 0x00000280U; E = E + A; A = A + (rotr(B, 2) ^ rotr(B, 13) ^ rotr(B, 22)) + ((B & C) | (D & (B | C)));
+	H = H + (rotr(E, 6) ^ rotr(E, 11) ^ rotr(E, 25)) + (G ^ (E & (F ^ G))) + K[16] + fW0; D = D + H; H = H + (rotr(A, 2) ^ rotr(A, 13) ^ rotr(A, 22)) + ((A & B) | (C & (A | B)));
+	G = G + (rotr(D, 6) ^ rotr(D, 11) ^ rotr(D, 25)) + (F ^ (D & (E ^ F))) + K[17] + fW1; C = C + G; G = G + (rotr(H, 2) ^ rotr(H, 13) ^ rotr(H, 22)) + ((H & A) | (B & (H | A)));
+	W2 = (rotr(W3, 7) ^ rotr(W3, 18) ^ (W3 >> 3U)) + fW2;
+	F = F + (rotr(C, 6) ^ rotr(C, 11) ^ rotr(C, 25)) + (E ^ (C & (D ^ E))) + K[18] +  W2; B = B + F; F = F + (rotr(G, 2) ^ rotr(G, 13) ^ rotr(G, 22)) + ((G & H) | (A & (G | H)));
+	W3 = W3 + fW3;
+	E = E + (rotr(B, 6) ^ rotr(B, 11) ^ rotr(B, 25)) + (D ^ (B & (C ^ D))) + K[19] +  W3; A = A + E; E = E + (rotr(F, 2) ^ rotr(F, 13) ^ rotr(F, 22)) + ((F & G) | (H & (F | G)));
+	W4 = (rotr(W2, 17) ^ rotr(W2, 19) ^ (W2 >> 10U)) + 0x80000000; 
+	D = D + (rotr(A, 6) ^ rotr(A, 11) ^ rotr(A, 25)) + (C ^ (A & (B ^ C))) + K[20] +  W4; H = H + D; D = D + (rotr(E, 2) ^ rotr(E, 13) ^ rotr(E, 22)) + ((E & F) | (G & (E | F)));
+	W5 = (rotr(W3, 17) ^ rotr(W3, 19) ^ (W3 >> 10U)); 
+	C = C + (rotr(H, 6) ^ rotr(H, 11) ^ rotr(H, 25)) + (B ^ (H & (A ^ B))) + K[21] +  W5; G = G + C; C = C + (rotr(D, 2) ^ rotr(D, 13) ^ rotr(D, 22)) + ((D & E) | (F & (D | E)));
+	W6 = (rotr(W4, 17) ^ rotr(W4, 19) ^ (W4 >> 10U)) + 0x00000280U; 
+	B = B + (rotr(G, 6) ^ rotr(G, 11) ^ rotr(G, 25)) + (A ^ (G & (H ^ A))) + K[22] +  W6; F = F + B; B = B + (rotr(C, 2) ^ rotr(C, 13) ^ rotr(C, 22)) + ((C & D) | (E & (C | D)));
+	W7 = (rotr(W5, 17) ^ rotr(W5, 19) ^ (W5 >> 10U)) + fW0; 
+	A = A + (rotr(F, 6) ^ rotr(F, 11) ^ rotr(F, 25)) + (H ^ (F & (G ^ H))) + K[23] +  W7; E = E + A; A = A + (rotr(B, 2) ^ rotr(B, 13) ^ rotr(B, 22)) + ((B & C) | (D & (B | C)));
+	W8 = (rotr(W6, 17) ^ rotr(W6, 19) ^ (W6 >> 10U)) + fW1; 
+	H = H + (rotr(E, 6) ^ rotr(E, 11) ^ rotr(E, 25)) + (G ^ (E & (F ^ G))) + K[24] +  W8; D = D + H; H = H + (rotr(A, 2) ^ rotr(A, 13) ^ rotr(A, 22)) + ((A & B) | (C & (A | B)));
+	W9 = W2 + (rotr(W7, 17) ^ rotr(W7, 19) ^ (W7 >> 10U)); 
+	G = G + (rotr(D, 6) ^ rotr(D, 11) ^ rotr(D, 25)) + (F ^ (D & (E ^ F))) + K[25] +  W9; C = C + G; G = G + (rotr(H, 2) ^ rotr(H, 13) ^ rotr(H, 22)) + ((H & A) | (B & (H | A)));
+	W10 = W3 + (rotr(W8, 17) ^ rotr(W8, 19) ^ (W8 >> 10U)); 
+	F = F + (rotr(C, 6) ^ rotr(C, 11) ^ rotr(C, 25)) + (E ^ (C & (D ^ E))) + K[26] + W10; B = B + F; F = F + (rotr(G, 2) ^ rotr(G, 13) ^ rotr(G, 22)) + ((G & H) | (A & (G | H)));
+	W11 = W4 + (rotr(W9, 17) ^ rotr(W9, 19) ^ (W9 >> 10U)); 
+	E = E + (rotr(B, 6) ^ rotr(B, 11) ^ rotr(B, 25)) + (D ^ (B & (C ^ D))) + K[27] + W11; A = A + E; E = E + (rotr(F, 2) ^ rotr(F, 13) ^ rotr(F, 22)) + ((F & G) | (H & (F | G)));
+	W12 = W5 + (rotr(W10, 17) ^ rotr(W10, 19) ^ (W10 >> 10U)); 
+	D = D + (rotr(A, 6) ^ rotr(A, 11) ^ rotr(A, 25)) + (C ^ (A & (B ^ C))) + K[28] + W12; H = H + D; D = D + (rotr(E, 2) ^ rotr(E, 13) ^ rotr(E, 22)) + ((E & F) | (G & (E | F)));
+	W13 = W6 + (rotr(W11, 17) ^ rotr(W11, 19) ^ (W11 >> 10U)); 
+	C = C + (rotr(H, 6) ^ rotr(H, 11) ^ rotr(H, 25)) + (B ^ (H & (A ^ B))) + K[29] + W13; G = G + C; C = C + (rotr(D, 2) ^ rotr(D, 13) ^ rotr(D, 22)) + ((D & E) | (F & (D | E)));
+	W14 = 0x00a00055U + W7 + (rotr(W12, 17) ^ rotr(W12, 19) ^ (W12 >> 10U)); 
+	B = B + (rotr(G, 6) ^ rotr(G, 11) ^ rotr(G, 25)) + (A ^ (G & (H ^ A))) + K[30] + W14; F = F + B; B = B + (rotr(C, 2) ^ rotr(C, 13) ^ rotr(C, 22)) + ((C & D) | (E & (C | D)));
+	W15 = fW15 + W8 + (rotr(W13, 17) ^ rotr(W13, 19) ^ (W13 >> 10U)); 
+	A = A + (rotr(F, 6) ^ rotr(F, 11) ^ rotr(F, 25)) + (H ^ (F & (G ^ H))) + K[31] + W15; E = E + A; A = A + (rotr(B, 2) ^ rotr(B, 13) ^ rotr(B, 22)) + ((B & C) | (D & (B | C)));
+	W0 = fW01r + W9 + (rotr(W14, 17) ^ rotr(W14, 19) ^ (W14 >> 10U));
+	H = H + (rotr(E, 6) ^ rotr(E, 11) ^ rotr(E, 25)) + (G ^ (E & (F ^ G))) + K[32] +  W0; D = D + H; H = H + (rotr(A, 2) ^ rotr(A, 13) ^ rotr(A, 22)) + ((A & B) | (C & (A | B)));
+	W1 = fW1 + (rotr(W2, 7) ^ rotr(W2, 18) ^ (W2 >> 3U)) + W10 + (rotr(W15, 17) ^ rotr(W15, 19) ^ (W15 >> 10U));
+	G = G + (rotr(D, 6) ^ rotr(D, 11) ^ rotr(D, 25)) + (F ^ (D & (E ^ F))) + K[33] +  W1; C = C + G; G = G + (rotr(H, 2) ^ rotr(H, 13) ^ rotr(H, 22)) + ((H & A) | (B & (H | A)));
+	W2 = W2 + (rotr(W3, 7) ^ rotr(W3, 18) ^ (W3 >> 3U)) + W11 + (rotr(W0, 17) ^ rotr(W0, 19) ^ (W0 >> 10U));
+	F = F + (rotr(C, 6) ^ rotr(C, 11) ^ rotr(C, 25)) + (E ^ (C & (D ^ E))) + K[34] +  W2; B = B + F; F = F + (rotr(G, 2) ^ rotr(G, 13) ^ rotr(G, 22)) + ((G & H) | (A & (G | H)));
+	W3 = W3 + (rotr(W4, 7) ^ rotr(W4, 18) ^ (W4 >> 3U)) + W12 + (rotr(W1, 17) ^ rotr(W1, 19) ^ (W1 >> 10U)); 
+	E = E + (rotr(B, 6) ^ rotr(B, 11) ^ rotr(B, 25)) + (D ^ (B & (C ^ D))) + K[35] +  W3; A = A + E; E = E + (rotr(F, 2) ^ rotr(F, 13) ^ rotr(F, 22)) + ((F & G) | (H & (F | G)));
+	W4 = W4 + (rotr(W5, 7) ^ rotr(W5, 18) ^ (W5 >> 3U)) + W13 + (rotr(W2, 17) ^ rotr(W2, 19) ^ (W2 >> 10U)); 
+	D = D + (rotr(A, 6) ^ rotr(A, 11) ^ rotr(A, 25)) + (C ^ (A & (B ^ C))) + K[36] +  W4; H = H + D; D = D + (rotr(E, 2) ^ rotr(E, 13) ^ rotr(E, 22)) + ((E & F) | (G & (E | F)));
+	W5 = W5 + (rotr(W6, 7) ^ rotr(W6, 18) ^ (W6 >> 3U)) + W14 + (rotr(W3, 17) ^ rotr(W3, 19) ^ (W3 >> 10U)); 
+	C = C + (rotr(H, 6) ^ rotr(H, 11) ^ rotr(H, 25)) + (B ^ (H & (A ^ B))) + K[37] +  W5; G = G + C; C = C + (rotr(D, 2) ^ rotr(D, 13) ^ rotr(D, 22)) + ((D & E) | (F & (D | E)));
+	W6 = W6 + (rotr(W7, 7) ^ rotr(W7, 18) ^ (W7 >> 3U)) + W15 + (rotr(W4, 17) ^ rotr(W4, 19) ^ (W4 >> 10U)); 
+	B = B + (rotr(G, 6) ^ rotr(G, 11) ^ rotr(G, 25)) + (A ^ (G & (H ^ A))) + K[38] +  W6; F = F + B; B = B + (rotr(C, 2) ^ rotr(C, 13) ^ rotr(C, 22)) + ((C & D) | (E & (C | D)));
+	W7 = W7 + (rotr(W8, 7) ^ rotr(W8, 18) ^ (W8 >> 3U)) + W0 + (rotr(W5, 17) ^ rotr(W5, 19) ^ (W5 >> 10U)); 
+	A = A + (rotr(F, 6) ^ rotr(F, 11) ^ rotr(F, 25)) + (H ^ (F & (G ^ H))) + K[39] +  W7; E = E + A; A = A + (rotr(B, 2) ^ rotr(B, 13) ^ rotr(B, 22)) + ((B & C) | (D & (B | C)));
+	W8 = W8 + (rotr(W9, 7) ^ rotr(W9, 18) ^ (W9 >> 3U)) + W1 + (rotr(W6, 17) ^ rotr(W6, 19) ^ (W6 >> 10U)); 
+	H = H + (rotr(E, 6) ^ rotr(E, 11) ^ rotr(E, 25)) + (G ^ (E & (F ^ G))) + K[40] +  W8; D = D + H; H = H + (rotr(A, 2) ^ rotr(A, 13) ^ rotr(A, 22)) + ((A & B) | (C & (A | B)));
+	W9 = W9 + (rotr(W10, 7) ^ rotr(W10, 18) ^ (W10 >> 3U)) + W2 + (rotr(W7, 17) ^ rotr(W7, 19) ^ (W7 >> 10U)); 
+	G = G + (rotr(D, 6) ^ rotr(D, 11) ^ rotr(D, 25)) + (F ^ (D & (E ^ F))) + K[41] +  W9; C = C + G; G = G + (rotr(H, 2) ^ rotr(H, 13) ^ rotr(H, 22)) + ((H & A) | (B & (H | A)));
+	W10 = W10 + (rotr(W11, 7) ^ rotr(W11, 18) ^ (W11 >> 3U)) + W3 + (rotr(W8, 17) ^ rotr(W8, 19) ^ (W8 >> 10U)); 
+	F = F + (rotr(C, 6) ^ rotr(C, 11) ^ rotr(C, 25)) + (E ^ (C & (D ^ E))) + K[42] + W10; B = B + F; F = F + (rotr(G, 2) ^ rotr(G, 13) ^ rotr(G, 22)) + ((G & H) | (A & (G | H)));
+	W11 = W11 + (rotr(W12, 7) ^ rotr(W12, 18) ^ (W12 >> 3U)) + W4 + (rotr(W9, 17) ^ rotr(W9, 19) ^ (W9 >> 10U)); 
+	E = E + (rotr(B, 6) ^ rotr(B, 11) ^ rotr(B, 25)) + (D ^ (B & (C ^ D))) + K[43] + W11; A = A + E; E = E + (rotr(F, 2) ^ rotr(F, 13) ^ rotr(F, 22)) + ((F & G) | (H & (F | G)));
+	W12 = W12 + (rotr(W13, 7) ^ rotr(W13, 18) ^ (W13 >> 3U)) + W5 + (rotr(W10, 17) ^ rotr(W10, 19) ^ (W10 >> 10U)); 
+	D = D + (rotr(A, 6) ^ rotr(A, 11) ^ rotr(A, 25)) + (C ^ (A & (B ^ C))) + K[44] + W12; H = H + D; D = D + (rotr(E, 2) ^ rotr(E, 13) ^ rotr(E, 22)) + ((E & F) | (G & (E | F)));
+	W13 = W13 + (rotr(W14, 7) ^ rotr(W14, 18) ^ (W14 >> 3U)) + W6 + (rotr(W11, 17) ^ rotr(W11, 19) ^ (W11 >> 10U)); 
+	C = C + (rotr(H, 6) ^ rotr(H, 11) ^ rotr(H, 25)) + (B ^ (H & (A ^ B))) + K[45] + W13; G = G + C; C = C + (rotr(D, 2) ^ rotr(D, 13) ^ rotr(D, 22)) + ((D & E) | (F & (D | E)));
+	W14 = W14 + (rotr(W15, 7) ^ rotr(W15, 18) ^ (W15 >> 3U)) + W7 + (rotr(W12, 17) ^ rotr(W12, 19) ^ (W12 >> 10U)); 
+	B = B + (rotr(G, 6) ^ rotr(G, 11) ^ rotr(G, 25)) + (A ^ (G & (H ^ A))) + K[46] + W14; F = F + B; B = B + (rotr(C, 2) ^ rotr(C, 13) ^ rotr(C, 22)) + ((C & D) | (E & (C | D)));
+	W15 = W15 + (rotr(W0, 7) ^ rotr(W0, 18) ^ (W0 >> 3U)) + W8 + (rotr(W13, 17) ^ rotr(W13, 19) ^ (W13 >> 10U)); 
+	A = A + (rotr(F, 6) ^ rotr(F, 11) ^ rotr(F, 25)) + (H ^ (F & (G ^ H))) + K[47] + W15; E = E + A; A = A + (rotr(B, 2) ^ rotr(B, 13) ^ rotr(B, 22)) + ((B & C) | (D & (B | C)));
+	W0 = W0 + (rotr(W1, 7) ^ rotr(W1, 18) ^ (W1 >> 3U)) + W9 + (rotr(W14, 17) ^ rotr(W14, 19) ^ (W14 >> 10U));
+	H = H + (rotr(E, 6) ^ rotr(E, 11) ^ rotr(E, 25)) + (G ^ (E & (F ^ G))) + K[48] +  W0; D = D + H; H = H + (rotr(A, 2) ^ rotr(A, 13) ^ rotr(A, 22)) + ((A & B) | (C & (A | B)));
+	W1 = W1 + (rotr(W2, 7) ^ rotr(W2, 18) ^ (W2 >> 3U)) + W10 + (rotr(W15, 17) ^ rotr(W15, 19) ^ (W15 >> 10U));
+	G = G + (rotr(D, 6) ^ rotr(D, 11) ^ rotr(D, 25)) + (F ^ (D & (E ^ F))) + K[49] +  W1; C = C + G; G = G + (rotr(H, 2) ^ rotr(H, 13) ^ rotr(H, 22)) + ((H & A) | (B & (H | A)));
+	W2 = W2 + (rotr(W3, 7) ^ rotr(W3, 18) ^ (W3 >> 3U)) + W11 + (rotr(W0, 17) ^ rotr(W0, 19) ^ (W0 >> 10U));
+	F = F + (rotr(C, 6) ^ rotr(C, 11) ^ rotr(C, 25)) + (E ^ (C & (D ^ E))) + K[50] +  W2; B = B + F; F = F + (rotr(G, 2) ^ rotr(G, 13) ^ rotr(G, 22)) + ((G & H) | (A & (G | H)));
+	W3 = W3 + (rotr(W4, 7) ^ rotr(W4, 18) ^ (W4 >> 3U)) + W12 + (rotr(W1, 17) ^ rotr(W1, 19) ^ (W1 >> 10U)); 
+	E = E + (rotr(B, 6) ^ rotr(B, 11) ^ rotr(B, 25)) + (D ^ (B & (C ^ D))) + K[51] +  W3; A = A + E; E = E + (rotr(F, 2) ^ rotr(F, 13) ^ rotr(F, 22)) + ((F & G) | (H & (F | G)));
+	W4 = W4 + (rotr(W5, 7) ^ rotr(W5, 18) ^ (W5 >> 3U)) + W13 + (rotr(W2, 17) ^ rotr(W2, 19) ^ (W2 >> 10U)); 
+	D = D + (rotr(A, 6) ^ rotr(A, 11) ^ rotr(A, 25)) + (C ^ (A & (B ^ C))) + K[52] +  W4; H = H + D; D = D + (rotr(E, 2) ^ rotr(E, 13) ^ rotr(E, 22)) + ((E & F) | (G & (E | F)));
+	W5 = W5 + (rotr(W6, 7) ^ rotr(W6, 18) ^ (W6 >> 3U)) + W14 + (rotr(W3, 17) ^ rotr(W3, 19) ^ (W3 >> 10U)); 
+	C = C + (rotr(H, 6) ^ rotr(H, 11) ^ rotr(H, 25)) + (B ^ (H & (A ^ B))) + K[53] +  W5; G = G + C; C = C + (rotr(D, 2) ^ rotr(D, 13) ^ rotr(D, 22)) + ((D & E) | (F & (D | E)));
+	W6 = W6 + (rotr(W7, 7) ^ rotr(W7, 18) ^ (W7 >> 3U)) + W15 + (rotr(W4, 17) ^ rotr(W4, 19) ^ (W4 >> 10U)); 
+	B = B + (rotr(G, 6) ^ rotr(G, 11) ^ rotr(G, 25)) + (A ^ (G & (H ^ A))) + K[54] +  W6; F = F + B; B = B + (rotr(C, 2) ^ rotr(C, 13) ^ rotr(C, 22)) + ((C & D) | (E & (C | D)));
+	W7 = W7 + (rotr(W8, 7) ^ rotr(W8, 18) ^ (W8 >> 3U)) + W0 + (rotr(W5, 17) ^ rotr(W5, 19) ^ (W5 >> 10U)); 
+	A = A + (rotr(F, 6) ^ rotr(F, 11) ^ rotr(F, 25)) + (H ^ (F & (G ^ H))) + K[55] +  W7; E = E + A; A = A + (rotr(B, 2) ^ rotr(B, 13) ^ rotr(B, 22)) + ((B & C) | (D & (B | C)));
+	W8 = W8 + (rotr(W9, 7) ^ rotr(W9, 18) ^ (W9 >> 3U)) + W1 + (rotr(W6, 17) ^ rotr(W6, 19) ^ (W6 >> 10U)); 
+	H = H + (rotr(E, 6) ^ rotr(E, 11) ^ rotr(E, 25)) + (G ^ (E & (F ^ G))) + K[56] +  W8; D = D + H; H = H + (rotr(A, 2) ^ rotr(A, 13) ^ rotr(A, 22)) + ((A & B) | (C & (A | B)));
+	W9 = W9 + (rotr(W10, 7) ^ rotr(W10, 18) ^ (W10 >> 3U)) + W2 + (rotr(W7, 17) ^ rotr(W7, 19) ^ (W7 >> 10U)); 
+	G = G + (rotr(D, 6) ^ rotr(D, 11) ^ rotr(D, 25)) + (F ^ (D & (E ^ F))) + K[57] +  W9; C = C + G; G = G + (rotr(H, 2) ^ rotr(H, 13) ^ rotr(H, 22)) + ((H & A) | (B & (H | A)));
+	W10 = W10 + (rotr(W11, 7) ^ rotr(W11, 18) ^ (W11 >> 3U)) + W3 + (rotr(W8, 17) ^ rotr(W8, 19) ^ (W8 >> 10U)); 
+	F = F + (rotr(C, 6) ^ rotr(C, 11) ^ rotr(C, 25)) + (E ^ (C & (D ^ E))) + K[58] + W10; B = B + F; F = F + (rotr(G, 2) ^ rotr(G, 13) ^ rotr(G, 22)) + ((G & H) | (A & (G | H)));
+	W11 = W11 + (rotr(W12, 7) ^ rotr(W12, 18) ^ (W12 >> 3U)) + W4 + (rotr(W9, 17) ^ rotr(W9, 19) ^ (W9 >> 10U)); 
+	E = E + (rotr(B, 6) ^ rotr(B, 11) ^ rotr(B, 25)) + (D ^ (B & (C ^ D))) + K[59] + W11; A = A + E; E = E + (rotr(F, 2) ^ rotr(F, 13) ^ rotr(F, 22)) + ((F & G) | (H & (F | G)));
+	W12 = W12 + (rotr(W13, 7) ^ rotr(W13, 18) ^ (W13 >> 3U)) + W5 + (rotr(W10, 17) ^ rotr(W10, 19) ^ (W10 >> 10U)); 
+	D = D + (rotr(A, 6) ^ rotr(A, 11) ^ rotr(A, 25)) + (C ^ (A & (B ^ C))) + K[60] + W12; H = H + D; D = D + (rotr(E, 2) ^ rotr(E, 13) ^ rotr(E, 22)) + ((E & F) | (G & (E | F)));
+	W13 = W13 + (rotr(W14, 7) ^ rotr(W14, 18) ^ (W14 >> 3U)) + W6 + (rotr(W11, 17) ^ rotr(W11, 19) ^ (W11 >> 10U)); 
+	C = C + (rotr(H, 6) ^ rotr(H, 11) ^ rotr(H, 25)) + (B ^ (H & (A ^ B))) + K[61] + W13; G = G + C; C = C + (rotr(D, 2) ^ rotr(D, 13) ^ rotr(D, 22)) + ((D & E) | (F & (D | E)));
+	W14 = W14 + (rotr(W15, 7) ^ rotr(W15, 18) ^ (W15 >> 3U)) + W7 + (rotr(W12, 17) ^ rotr(W12, 19) ^ (W12 >> 10U)); 
+	B = B + (rotr(G, 6) ^ rotr(G, 11) ^ rotr(G, 25)) + (A ^ (G & (H ^ A))) + K[62] + W14; F = F + B; B = B + (rotr(C, 2) ^ rotr(C, 13) ^ rotr(C, 22)) + ((C & D) | (E & (C | D)));
+	W15 = W15 + (rotr(W0, 7) ^ rotr(W0, 18) ^ (W0 >> 3U)) + W8 + (rotr(W13, 17) ^ rotr(W13, 19) ^ (W13 >> 10U)); 
+	A = A + (rotr(F, 6) ^ rotr(F, 11) ^ rotr(F, 25)) + (H ^ (F & (G ^ H))) + K[63] + W15; E = E + A; A = A + (rotr(B, 2) ^ rotr(B, 13) ^ rotr(B, 22)) + ((B & C) | (D & (B | C)));
 
-	work[0]=state0+A;
-	work[1]=state1+B;
-	work[2]=state2+C;
-	work[3]=state3+D;
-	work[4]=state4+E;
-	work[5]=state5+F;
-	work[6]=state6+G;
-	work[7]=state7+H;
-	work[8]=0x80000000U;
-	work[9]=0x00000000U;
-	work[10]=0x00000000U;
-	work[11]=0x00000000U;
-	work[12]=0x00000000U;
-	work[13]=0x00000000U;
-	work[14]=0x00000000U;
-	work[15]=0x00000100U;
-
-	A=0x6a09e667U;
-	B=0xbb67ae85U;
-	C=0x3c6ef372U;
-	D=0xa54ff53aU;
-	E=0x510e527fU;
-	F=0x9b05688cU;
-	G=0x1f83d9abU;
-	H=0x5be0cd19U;
-
-	sharound(A,B,C,D,E,F,G,H,work[0],0x428A2F98U);
-	sharound(H,A,B,C,D,E,F,G,work[1],0x71374491U);
-	sharound(G,H,A,B,C,D,E,F,work[2],0xB5C0FBCFU);
-	sharound(F,G,H,A,B,C,D,E,work[3],0xE9B5DBA5U);
-	sharound(E,F,G,H,A,B,C,D,work[4],0x3956C25BU);
-	sharound(D,E,F,G,H,A,B,C,work[5],0x59F111F1U);
-	sharound(C,D,E,F,G,H,A,B,work[6],0x923F82A4U);
-	sharound(B,C,D,E,F,G,H,A,work[7],0xAB1C5ED5U);
-	sharound(A,B,C,D,E,F,G,H,work[8],0xD807AA98U);
-	sharound(H,A,B,C,D,E,F,G,work[9],0x12835B01U);
-	sharound(G,H,A,B,C,D,E,F,work[10],0x243185BEU);
-	sharound(F,G,H,A,B,C,D,E,work[11],0x550C7DC3U);
-	sharound(E,F,G,H,A,B,C,D,work[12],0x72BE5D74U);
-	sharound(D,E,F,G,H,A,B,C,work[13],0x80DEB1FEU);
-	sharound(C,D,E,F,G,H,A,B,work[14],0x9BDC06A7U);
-	sharound(B,C,D,E,F,G,H,A,work[15],0xC19BF174U);
-	sharound(A,B,C,D,E,F,G,H,R(16),0xE49B69C1U);
-	sharound(H,A,B,C,D,E,F,G,R(17),0xEFBE4786U);
-	sharound(G,H,A,B,C,D,E,F,R(18),0x0FC19DC6U);
-	sharound(F,G,H,A,B,C,D,E,R(19),0x240CA1CCU);
-	sharound(E,F,G,H,A,B,C,D,R(20),0x2DE92C6FU);
-	sharound(D,E,F,G,H,A,B,C,R(21),0x4A7484AAU);
-	sharound(C,D,E,F,G,H,A,B,R(22),0x5CB0A9DCU);
-	sharound(B,C,D,E,F,G,H,A,R(23),0x76F988DAU);
-	sharound(A,B,C,D,E,F,G,H,R(24),0x983E5152U);
-	sharound(H,A,B,C,D,E,F,G,R(25),0xA831C66DU);
-	sharound(G,H,A,B,C,D,E,F,R(26),0xB00327C8U);
-	sharound(F,G,H,A,B,C,D,E,R(27),0xBF597FC7U);
-	sharound(E,F,G,H,A,B,C,D,R(28),0xC6E00BF3U);
-	sharound(D,E,F,G,H,A,B,C,R(29),0xD5A79147U);
-	sharound(C,D,E,F,G,H,A,B,R(30),0x06CA6351U);
-	sharound(B,C,D,E,F,G,H,A,R(31),0x14292967U);
-	sharound(A,B,C,D,E,F,G,H,R(32),0x27B70A85U);
-	sharound(H,A,B,C,D,E,F,G,R(33),0x2E1B2138U);
-	sharound(G,H,A,B,C,D,E,F,R(34),0x4D2C6DFCU);
-	sharound(F,G,H,A,B,C,D,E,R(35),0x53380D13U);
-	sharound(E,F,G,H,A,B,C,D,R(36),0x650A7354U);
-	sharound(D,E,F,G,H,A,B,C,R(37),0x766A0ABBU);
-	sharound(C,D,E,F,G,H,A,B,R(38),0x81C2C92EU);
-	sharound(B,C,D,E,F,G,H,A,R(39),0x92722C85U);
-	sharound(A,B,C,D,E,F,G,H,R(40),0xA2BFE8A1U);
-	sharound(H,A,B,C,D,E,F,G,R(41),0xA81A664BU);
-	sharound(G,H,A,B,C,D,E,F,R(42),0xC24B8B70U);
-	sharound(F,G,H,A,B,C,D,E,R(43),0xC76C51A3U);
-	sharound(E,F,G,H,A,B,C,D,R(44),0xD192E819U);
-	sharound(D,E,F,G,H,A,B,C,R(45),0xD6990624U);
-	sharound(C,D,E,F,G,H,A,B,R(46),0xF40E3585U);
-	sharound(B,C,D,E,F,G,H,A,R(47),0x106AA070U);
-	sharound(A,B,C,D,E,F,G,H,R(48),0x19A4C116U);
-	sharound(H,A,B,C,D,E,F,G,R(49),0x1E376C08U);
-	sharound(G,H,A,B,C,D,E,F,R(50),0x2748774CU);
-	sharound(F,G,H,A,B,C,D,E,R(51),0x34B0BCB5U);
-	sharound(E,F,G,H,A,B,C,D,R(52),0x391C0CB3U);
-	sharound(D,E,F,G,H,A,B,C,R(53),0x4ED8AA4AU);
-	sharound(C,D,E,F,G,H,A,B,R(54),0x5B9CCA4FU);
-	sharound(B,C,D,E,F,G,H,A,R(55),0x682E6FF3U);
-	sharound(A,B,C,D,E,F,G,H,R(56),0x748F82EEU);
-	sharound(H,A,B,C,D,E,F,G,R(57),0x78A5636FU);
-	sharound(G,H,A,B,C,D,E,F,R(58),0x84C87814U);
-	sharound(F,G,H,A,B,C,D,E,R(59),0x8CC70208U);
-	sharound(E,F,G,H,A,B,C,D,R(60),0x90BEFFFAU);
-	sharound(D,E,F,G,H,A,B,C,R(61),0xA4506CEBU);
-	//we don't need to do these last 2 rounds as they update F, B, E and A, but we only care about G and H
-	//sharound(C,D,E,F,G,H,A,B,R(62),0xBEF9A3F7);
-	//sharound(B,C,D,E,F,G,H,A,R(63),0xC67178F2);
+	W0 = A + state0; W1 = B + state1;
+	W2 = C + state2; W3 = D + state3;
+	W4 = E + state4; W5 = F + state5;
+	W6 = G + state6; W7 = H + state7;
+	H = 0xb0edbdd0 + K[ 0] +  W0; D = 0xa54ff53a + H; H = H + 0x08909ae5U;
+	G = 0x1f83d9abU + (rotr(D, 6) ^ rotr(D, 11) ^ rotr(D, 25)) + (0x9b05688cU ^ (D & 0xca0b3af3U)) + K[ 1] +  W1; C = 0x3c6ef372U + G; G = G + (rotr(H, 2) ^ rotr(H, 13) ^ rotr(H, 22)) + ((H & 0x6a09e667U) | (0xbb67ae85U & (H | 0x6a09e667U)));
+	F = 0x9b05688cU + (rotr(C, 6) ^ rotr(C, 11) ^ rotr(C, 25)) + (0x510e527fU ^ (C & (D ^ 0x510e527fU))) + K[ 2] +  W2; B = 0xbb67ae85U + F; F = F + (rotr(G, 2) ^ rotr(G, 13) ^ rotr(G, 22)) + ((G & H) | (0x6a09e667U & (G | H)));
+	E = 0x510e527fU + (rotr(B, 6) ^ rotr(B, 11) ^ rotr(B, 25)) + (D ^ (B & (C ^ D))) + K[ 3] +  W3; A = 0x6a09e667U + E; E = E + (rotr(F, 2) ^ rotr(F, 13) ^ rotr(F, 22)) + ((F & G) | (H & (F | G)));
+	D = D + (rotr(A, 6) ^ rotr(A, 11) ^ rotr(A, 25)) + (C ^ (A & (B ^ C))) + K[ 4] +  W4; H = H + D; D = D + (rotr(E, 2) ^ rotr(E, 13) ^ rotr(E, 22)) + ((E & F) | (G & (E | F)));
+	C = C + (rotr(H, 6) ^ rotr(H, 11) ^ rotr(H, 25)) + (B ^ (H & (A ^ B))) + K[ 5] +  W5; G = G + C; C = C + (rotr(D, 2) ^ rotr(D, 13) ^ rotr(D, 22)) + ((D & E) | (F & (D | E)));
+	B = B + (rotr(G, 6) ^ rotr(G, 11) ^ rotr(G, 25)) + (A ^ (G & (H ^ A))) + K[ 6] +  W6; F = F + B; B = B + (rotr(C, 2) ^ rotr(C, 13) ^ rotr(C, 22)) + ((C & D) | (E & (C | D)));
+	A = A + (rotr(F, 6) ^ rotr(F, 11) ^ rotr(F, 25)) + (H ^ (F & (G ^ H))) + K[ 7] +  W7; E = E + A; A = A + (rotr(B, 2) ^ rotr(B, 13) ^ rotr(B, 22)) + ((B & C) | (D & (B | C)));
+	H = H + (rotr(E, 6) ^ rotr(E, 11) ^ rotr(E, 25)) + (G ^ (E & (F ^ G))) + K[ 8] +  0x80000000; D = D + H; H = H + (rotr(A, 2) ^ rotr(A, 13) ^ rotr(A, 22)) + ((A & B) | (C & (A | B)));
+	G = G + (rotr(D, 6) ^ rotr(D, 11) ^ rotr(D, 25)) + (F ^ (D & (E ^ F))) + K[ 9]; C = C + G; G = G + (rotr(H, 2) ^ rotr(H, 13) ^ rotr(H, 22)) + ((H & A) | (B & (H | A)));
+	F = F + (rotr(C, 6) ^ rotr(C, 11) ^ rotr(C, 25)) + (E ^ (C & (D ^ E))) + K[10]; B = B + F; F = F + (rotr(G, 2) ^ rotr(G, 13) ^ rotr(G, 22)) + ((G & H) | (A & (G | H)));
+	E = E + (rotr(B, 6) ^ rotr(B, 11) ^ rotr(B, 25)) + (D ^ (B & (C ^ D))) + K[11]; A = A + E; E = E + (rotr(F, 2) ^ rotr(F, 13) ^ rotr(F, 22)) + ((F & G) | (H & (F | G)));
+	D = D + (rotr(A, 6) ^ rotr(A, 11) ^ rotr(A, 25)) + (C ^ (A & (B ^ C))) + K[12]; H = H + D; D = D + (rotr(E, 2) ^ rotr(E, 13) ^ rotr(E, 22)) + ((E & F) | (G & (E | F)));
+	C = C + (rotr(H, 6) ^ rotr(H, 11) ^ rotr(H, 25)) + (B ^ (H & (A ^ B))) + K[13]; G = G + C; C = C + (rotr(D, 2) ^ rotr(D, 13) ^ rotr(D, 22)) + ((D & E) | (F & (D | E)));
+	B = B + (rotr(G, 6) ^ rotr(G, 11) ^ rotr(G, 25)) + (A ^ (G & (H ^ A))) + K[14]; F = F + B; B = B + (rotr(C, 2) ^ rotr(C, 13) ^ rotr(C, 22)) + ((C & D) | (E & (C | D)));
+	A = A + (rotr(F, 6) ^ rotr(F, 11) ^ rotr(F, 25)) + (H ^ (F & (G ^ H))) + K[15] + 0x00000100U; E = E + A; A = A + (rotr(B, 2) ^ rotr(B, 13) ^ rotr(B, 22)) + ((B & C) | (D & (B | C)));
+	W0 = W0 + (rotr(W1, 7) ^ rotr(W1, 18) ^ (W1 >> 3U));
+	H = H + (rotr(E, 6) ^ rotr(E, 11) ^ rotr(E, 25)) + (G ^ (E & (F ^ G))) + K[16] +  W0; D = D + H; H = H + (rotr(A, 2) ^ rotr(A, 13) ^ rotr(A, 22)) + ((A & B) | (C & (A | B)));
+	W1 = W1 + (rotr(W2, 7) ^ rotr(W2, 18) ^ (W2 >> 3U)) + 0x00a00000U;
+	G = G + (rotr(D, 6) ^ rotr(D, 11) ^ rotr(D, 25)) + (F ^ (D & (E ^ F))) + K[17] +  W1; C = C + G; G = G + (rotr(H, 2) ^ rotr(H, 13) ^ rotr(H, 22)) + ((H & A) | (B & (H | A)));
+	W2 = W2 + (rotr(W3, 7) ^ rotr(W3, 18) ^ (W3 >> 3U)) + (rotr(W0, 17) ^ rotr(W0, 19) ^ (W0 >> 10U));
+	F = F + (rotr(C, 6) ^ rotr(C, 11) ^ rotr(C, 25)) + (E ^ (C & (D ^ E))) + K[18] +  W2; B = B + F; F = F + (rotr(G, 2) ^ rotr(G, 13) ^ rotr(G, 22)) + ((G & H) | (A & (G | H)));
+	W3 = W3 + (rotr(W4, 7) ^ rotr(W4, 18) ^ (W4 >> 3U)) + (rotr(W1, 17) ^ rotr(W1, 19) ^ (W1 >> 10U)); 
+	E = E + (rotr(B, 6) ^ rotr(B, 11) ^ rotr(B, 25)) + (D ^ (B & (C ^ D))) + K[19] +  W3; A = A + E; E = E + (rotr(F, 2) ^ rotr(F, 13) ^ rotr(F, 22)) + ((F & G) | (H & (F | G)));
+	W4 = W4 + (rotr(W5, 7) ^ rotr(W5, 18) ^ (W5 >> 3U)) + (rotr(W2, 17) ^ rotr(W2, 19) ^ (W2 >> 10U)); 
+	D = D + (rotr(A, 6) ^ rotr(A, 11) ^ rotr(A, 25)) + (C ^ (A & (B ^ C))) + K[20] +  W4; H = H + D; D = D + (rotr(E, 2) ^ rotr(E, 13) ^ rotr(E, 22)) + ((E & F) | (G & (E | F)));
+	W5 = W5 + (rotr(W6, 7) ^ rotr(W6, 18) ^ (W6 >> 3U)) + (rotr(W3, 17) ^ rotr(W3, 19) ^ (W3 >> 10U)); 
+	C = C + (rotr(H, 6) ^ rotr(H, 11) ^ rotr(H, 25)) + (B ^ (H & (A ^ B))) + K[21] +  W5; G = G + C; C = C + (rotr(D, 2) ^ rotr(D, 13) ^ rotr(D, 22)) + ((D & E) | (F & (D | E)));
+	W6 = W6 + (rotr(W7, 7) ^ rotr(W7, 18) ^ (W7 >> 3U)) + 0x00000100U + (rotr(W4, 17) ^ rotr(W4, 19) ^ (W4 >> 10U)); 
+	B = B + (rotr(G, 6) ^ rotr(G, 11) ^ rotr(G, 25)) + (A ^ (G & (H ^ A))) + K[22] +  W6; F = F + B; B = B + (rotr(C, 2) ^ rotr(C, 13) ^ rotr(C, 22)) + ((C & D) | (E & (C | D)));
+	W7 = W7 + 0x11002000U + W0 + (rotr(W5, 17) ^ rotr(W5, 19) ^ (W5 >> 10U)); 
+	A = A + (rotr(F, 6) ^ rotr(F, 11) ^ rotr(F, 25)) + (H ^ (F & (G ^ H))) + K[23] +  W7; E = E + A; A = A + (rotr(B, 2) ^ rotr(B, 13) ^ rotr(B, 22)) + ((B & C) | (D & (B | C)));
+	W8 = 0x80000000 + W1 + (rotr(W6, 17) ^ rotr(W6, 19) ^ (W6 >> 10U)); 
+	H = H + (rotr(E, 6) ^ rotr(E, 11) ^ rotr(E, 25)) + (G ^ (E & (F ^ G))) + K[24] +  W8; D = D + H; H = H + (rotr(A, 2) ^ rotr(A, 13) ^ rotr(A, 22)) + ((A & B) | (C & (A | B)));
+	W9 = W2 + (rotr(W7, 17) ^ rotr(W7, 19) ^ (W7 >> 10U)); 
+	G = G + (rotr(D, 6) ^ rotr(D, 11) ^ rotr(D, 25)) + (F ^ (D & (E ^ F))) + K[25] +  W9; C = C + G; G = G + (rotr(H, 2) ^ rotr(H, 13) ^ rotr(H, 22)) + ((H & A) | (B & (H | A)));
+	W10 = W3 + (rotr(W8, 17) ^ rotr(W8, 19) ^ (W8 >> 10U)); 
+	F = F + (rotr(C, 6) ^ rotr(C, 11) ^ rotr(C, 25)) + (E ^ (C & (D ^ E))) + K[26] + W10; B = B + F; F = F + (rotr(G, 2) ^ rotr(G, 13) ^ rotr(G, 22)) + ((G & H) | (A & (G | H)));
+	W11 = W4 + (rotr(W9, 17) ^ rotr(W9, 19) ^ (W9 >> 10U)); 
+	E = E + (rotr(B, 6) ^ rotr(B, 11) ^ rotr(B, 25)) + (D ^ (B & (C ^ D))) + K[27] + W11; A = A + E; E = E + (rotr(F, 2) ^ rotr(F, 13) ^ rotr(F, 22)) + ((F & G) | (H & (F | G)));
+	W12 = W5 + (rotr(W10, 17) ^ rotr(W10, 19) ^ (W10 >> 10U)); 
+	D = D + (rotr(A, 6) ^ rotr(A, 11) ^ rotr(A, 25)) + (C ^ (A & (B ^ C))) + K[28] + W12; H = H + D; D = D + (rotr(E, 2) ^ rotr(E, 13) ^ rotr(E, 22)) + ((E & F) | (G & (E | F)));
+	W13 = W6 + (rotr(W11, 17) ^ rotr(W11, 19) ^ (W11 >> 10U)); 
+	C = C + (rotr(H, 6) ^ rotr(H, 11) ^ rotr(H, 25)) + (B ^ (H & (A ^ B))) + K[29] + W13; G = G + C; C = C + (rotr(D, 2) ^ rotr(D, 13) ^ rotr(D, 22)) + ((D & E) | (F & (D | E)));
+	W14 = 0x00400022U + W7 + (rotr(W12, 17) ^ rotr(W12, 19) ^ (W12 >> 10U)); 
+	B = B + (rotr(G, 6) ^ rotr(G, 11) ^ rotr(G, 25)) + (A ^ (G & (H ^ A))) + K[30] + W14; F = F + B; B = B + (rotr(C, 2) ^ rotr(C, 13) ^ rotr(C, 22)) + ((C & D) | (E & (C | D)));
+	W15 = 0x00000100U + (rotr(W0, 7) ^ rotr(W0, 18) ^ (W0 >> 3U)) + W8 + (rotr(W13, 17) ^ rotr(W13, 19) ^ (W13 >> 10U)); 
+	A = A + (rotr(F, 6) ^ rotr(F, 11) ^ rotr(F, 25)) + (H ^ (F & (G ^ H))) + K[31] + W15; E = E + A; A = A + (rotr(B, 2) ^ rotr(B, 13) ^ rotr(B, 22)) + ((B & C) | (D & (B | C)));
+	W0 = W0 + (rotr(W1, 7) ^ rotr(W1, 18) ^ (W1 >> 3U)) + W9 + (rotr(W14, 17) ^ rotr(W14, 19) ^ (W14 >> 10U));
+	H = H + (rotr(E, 6) ^ rotr(E, 11) ^ rotr(E, 25)) + (G ^ (E & (F ^ G))) + K[32] +  W0; D = D + H; H = H + (rotr(A, 2) ^ rotr(A, 13) ^ rotr(A, 22)) + ((A & B) | (C & (A | B)));
+	W1 = W1 + (rotr(W2, 7) ^ rotr(W2, 18) ^ (W2 >> 3U)) + W10 + (rotr(W15, 17) ^ rotr(W15, 19) ^ (W15 >> 10U));
+	G = G + (rotr(D, 6) ^ rotr(D, 11) ^ rotr(D, 25)) + (F ^ (D & (E ^ F))) + K[33] +  W1; C = C + G; G = G + (rotr(H, 2) ^ rotr(H, 13) ^ rotr(H, 22)) + ((H & A) | (B & (H | A)));
+	W2 = W2 + (rotr(W3, 7) ^ rotr(W3, 18) ^ (W3 >> 3U)) + W11 + (rotr(W0, 17) ^ rotr(W0, 19) ^ (W0 >> 10U));
+	F = F + (rotr(C, 6) ^ rotr(C, 11) ^ rotr(C, 25)) + (E ^ (C & (D ^ E))) + K[34] +  W2; B = B + F; F = F + (rotr(G, 2) ^ rotr(G, 13) ^ rotr(G, 22)) + ((G & H) | (A & (G | H)));
+	W3 = W3 + (rotr(W4, 7) ^ rotr(W4, 18) ^ (W4 >> 3U)) + W12 + (rotr(W1, 17) ^ rotr(W1, 19) ^ (W1 >> 10U)); 
+	E = E + (rotr(B, 6) ^ rotr(B, 11) ^ rotr(B, 25)) + (D ^ (B & (C ^ D))) + K[35] +  W3; A = A + E; E = E + (rotr(F, 2) ^ rotr(F, 13) ^ rotr(F, 22)) + ((F & G) | (H & (F | G)));
+	W4 = W4 + (rotr(W5, 7) ^ rotr(W5, 18) ^ (W5 >> 3U)) + W13 + (rotr(W2, 17) ^ rotr(W2, 19) ^ (W2 >> 10U)); 
+	D = D + (rotr(A, 6) ^ rotr(A, 11) ^ rotr(A, 25)) + (C ^ (A & (B ^ C))) + K[36] +  W4; H = H + D; D = D + (rotr(E, 2) ^ rotr(E, 13) ^ rotr(E, 22)) + ((E & F) | (G & (E | F)));
+	W5 = W5 + (rotr(W6, 7) ^ rotr(W6, 18) ^ (W6 >> 3U)) + W14 + (rotr(W3, 17) ^ rotr(W3, 19) ^ (W3 >> 10U)); 
+	C = C + (rotr(H, 6) ^ rotr(H, 11) ^ rotr(H, 25)) + (B ^ (H & (A ^ B))) + K[37] +  W5; G = G + C; C = C + (rotr(D, 2) ^ rotr(D, 13) ^ rotr(D, 22)) + ((D & E) | (F & (D | E)));
+	W6 = W6 + (rotr(W7, 7) ^ rotr(W7, 18) ^ (W7 >> 3U)) + W15 + (rotr(W4, 17) ^ rotr(W4, 19) ^ (W4 >> 10U)); 
+	B = B + (rotr(G, 6) ^ rotr(G, 11) ^ rotr(G, 25)) + (A ^ (G & (H ^ A))) + K[38] +  W6; F = F + B; B = B + (rotr(C, 2) ^ rotr(C, 13) ^ rotr(C, 22)) + ((C & D) | (E & (C | D)));
+	W7 = W7 + (rotr(W8, 7) ^ rotr(W8, 18) ^ (W8 >> 3U)) + W0 + (rotr(W5, 17) ^ rotr(W5, 19) ^ (W5 >> 10U)); 
+	A = A + (rotr(F, 6) ^ rotr(F, 11) ^ rotr(F, 25)) + (H ^ (F & (G ^ H))) + K[39] +  W7; E = E + A; A = A + (rotr(B, 2) ^ rotr(B, 13) ^ rotr(B, 22)) + ((B & C) | (D & (B | C)));
+	W8 = W8 + (rotr(W9, 7) ^ rotr(W9, 18) ^ (W9 >> 3U)) + W1 + (rotr(W6, 17) ^ rotr(W6, 19) ^ (W6 >> 10U)); 
+	H = H + (rotr(E, 6) ^ rotr(E, 11) ^ rotr(E, 25)) + (G ^ (E & (F ^ G))) + K[40] +  W8; D = D + H; H = H + (rotr(A, 2) ^ rotr(A, 13) ^ rotr(A, 22)) + ((A & B) | (C & (A | B)));
+	W9 = W9 + (rotr(W10, 7) ^ rotr(W10, 18) ^ (W10 >> 3U)) + W2 + (rotr(W7, 17) ^ rotr(W7, 19) ^ (W7 >> 10U)); 
+	G = G + (rotr(D, 6) ^ rotr(D, 11) ^ rotr(D, 25)) + (F ^ (D & (E ^ F))) + K[41] +  W9; C = C + G; G = G + (rotr(H, 2) ^ rotr(H, 13) ^ rotr(H, 22)) + ((H & A) | (B & (H | A)));
+	W10 = W10 + (rotr(W11, 7) ^ rotr(W11, 18) ^ (W11 >> 3U)) + W3 + (rotr(W8, 17) ^ rotr(W8, 19) ^ (W8 >> 10U)); 
+	F = F + (rotr(C, 6) ^ rotr(C, 11) ^ rotr(C, 25)) + (E ^ (C & (D ^ E))) + K[42] + W10; B = B + F; F = F + (rotr(G, 2) ^ rotr(G, 13) ^ rotr(G, 22)) + ((G & H) | (A & (G | H)));
+	W11 = W11 + (rotr(W12, 7) ^ rotr(W12, 18) ^ (W12 >> 3U)) + W4 + (rotr(W9, 17) ^ rotr(W9, 19) ^ (W9 >> 10U)); 
+	E = E + (rotr(B, 6) ^ rotr(B, 11) ^ rotr(B, 25)) + (D ^ (B & (C ^ D))) + K[43] + W11; A = A + E; E = E + (rotr(F, 2) ^ rotr(F, 13) ^ rotr(F, 22)) + ((F & G) | (H & (F | G)));
+	W12 = W12 + (rotr(W13, 7) ^ rotr(W13, 18) ^ (W13 >> 3U)) + W5 + (rotr(W10, 17) ^ rotr(W10, 19) ^ (W10 >> 10U)); 
+	D = D + (rotr(A, 6) ^ rotr(A, 11) ^ rotr(A, 25)) + (C ^ (A & (B ^ C))) + K[44] + W12; H = H + D; D = D + (rotr(E, 2) ^ rotr(E, 13) ^ rotr(E, 22)) + ((E & F) | (G & (E | F)));
+	W13 = W13 + (rotr(W14, 7) ^ rotr(W14, 18) ^ (W14 >> 3U)) + W6 + (rotr(W11, 17) ^ rotr(W11, 19) ^ (W11 >> 10U)); 
+	C = C + (rotr(H, 6) ^ rotr(H, 11) ^ rotr(H, 25)) + (B ^ (H & (A ^ B))) + K[45] + W13; G = G + C; C = C + (rotr(D, 2) ^ rotr(D, 13) ^ rotr(D, 22)) + ((D & E) | (F & (D | E)));
+	W14 = W14 + (rotr(W15, 7) ^ rotr(W15, 18) ^ (W15 >> 3U)) + W7 + (rotr(W12, 17) ^ rotr(W12, 19) ^ (W12 >> 10U)); 
+	B = B + (rotr(G, 6) ^ rotr(G, 11) ^ rotr(G, 25)) + (A ^ (G & (H ^ A))) + K[46] + W14; F = F + B; B = B + (rotr(C, 2) ^ rotr(C, 13) ^ rotr(C, 22)) + ((C & D) | (E & (C | D)));
+	W15 = W15 + (rotr(W0, 7) ^ rotr(W0, 18) ^ (W0 >> 3U)) + W8 + (rotr(W13, 17) ^ rotr(W13, 19) ^ (W13 >> 10U)); 
+	A = A + (rotr(F, 6) ^ rotr(F, 11) ^ rotr(F, 25)) + (H ^ (F & (G ^ H))) + K[47] + W15; E = E + A; A = A + (rotr(B, 2) ^ rotr(B, 13) ^ rotr(B, 22)) + ((B & C) | (D & (B | C)));
+	W0 = W0 + (rotr(W1, 7) ^ rotr(W1, 18) ^ (W1 >> 3U)) + W9 + (rotr(W14, 17) ^ rotr(W14, 19) ^ (W14 >> 10U));
+	H = H + (rotr(E, 6) ^ rotr(E, 11) ^ rotr(E, 25)) + (G ^ (E & (F ^ G))) + K[48] +  W0; D = D + H; H = H + (rotr(A, 2) ^ rotr(A, 13) ^ rotr(A, 22)) + ((A & B) | (C & (A | B)));
+	W1 = W1 + (rotr(W2, 7) ^ rotr(W2, 18) ^ (W2 >> 3U)) + W10 + (rotr(W15, 17) ^ rotr(W15, 19) ^ (W15 >> 10U));
+	G = G + (rotr(D, 6) ^ rotr(D, 11) ^ rotr(D, 25)) + (F ^ (D & (E ^ F))) + K[49] +  W1; C = C + G; G = G + (rotr(H, 2) ^ rotr(H, 13) ^ rotr(H, 22)) + ((H & A) | (B & (H | A)));
+	W2 = W2 + (rotr(W3, 7) ^ rotr(W3, 18) ^ (W3 >> 3U)) + W11 + (rotr(W0, 17) ^ rotr(W0, 19) ^ (W0 >> 10U));
+	F = F + (rotr(C, 6) ^ rotr(C, 11) ^ rotr(C, 25)) + (E ^ (C & (D ^ E))) + K[50] +  W2; B = B + F; F = F + (rotr(G, 2) ^ rotr(G, 13) ^ rotr(G, 22)) + ((G & H) | (A & (G | H)));
+	W3 = W3 + (rotr(W4, 7) ^ rotr(W4, 18) ^ (W4 >> 3U)) + W12 + (rotr(W1, 17) ^ rotr(W1, 19) ^ (W1 >> 10U)); 
+	E = E + (rotr(B, 6) ^ rotr(B, 11) ^ rotr(B, 25)) + (D ^ (B & (C ^ D))) + K[51] +  W3; A = A + E; E = E + (rotr(F, 2) ^ rotr(F, 13) ^ rotr(F, 22)) + ((F & G) | (H & (F | G)));
+	W4 = W4 + (rotr(W5, 7) ^ rotr(W5, 18) ^ (W5 >> 3U)) + W13 + (rotr(W2, 17) ^ rotr(W2, 19) ^ (W2 >> 10U)); 
+	D = D + (rotr(A, 6) ^ rotr(A, 11) ^ rotr(A, 25)) + (C ^ (A & (B ^ C))) + K[52] +  W4; H = H + D; D = D + (rotr(E, 2) ^ rotr(E, 13) ^ rotr(E, 22)) + ((E & F) | (G & (E | F)));
+	W5 = W5 + (rotr(W6, 7) ^ rotr(W6, 18) ^ (W6 >> 3U)) + W14 + (rotr(W3, 17) ^ rotr(W3, 19) ^ (W3 >> 10U)); 
+	C = C + (rotr(H, 6) ^ rotr(H, 11) ^ rotr(H, 25)) + (B ^ (H & (A ^ B))) + K[53] +  W5; G = G + C; C = C + (rotr(D, 2) ^ rotr(D, 13) ^ rotr(D, 22)) + ((D & E) | (F & (D | E)));
+	W6 = W6 + (rotr(W7, 7) ^ rotr(W7, 18) ^ (W7 >> 3U)) + W15 + (rotr(W4, 17) ^ rotr(W4, 19) ^ (W4 >> 10U)); 
+	B = B + (rotr(G, 6) ^ rotr(G, 11) ^ rotr(G, 25)) + (A ^ (G & (H ^ A))) + K[54] +  W6; F = F + B; B = B + (rotr(C, 2) ^ rotr(C, 13) ^ rotr(C, 22)) + ((C & D) | (E & (C | D)));
+	W7 = W7 + (rotr(W8, 7) ^ rotr(W8, 18) ^ (W8 >> 3U)) + W0 + (rotr(W5, 17) ^ rotr(W5, 19) ^ (W5 >> 10U)); 
+	A = A + (rotr(F, 6) ^ rotr(F, 11) ^ rotr(F, 25)) + (H ^ (F & (G ^ H))) + K[55] +  W7; E = E + A; A = A + (rotr(B, 2) ^ rotr(B, 13) ^ rotr(B, 22)) + ((B & C) | (D & (B | C)));
+	W8 = W8 + (rotr(W9, 7) ^ rotr(W9, 18) ^ (W9 >> 3U)) + W1 + (rotr(W6, 17) ^ rotr(W6, 19) ^ (W6 >> 10U)); 
+	H = H + (rotr(E, 6) ^ rotr(E, 11) ^ rotr(E, 25)) + (G ^ (E & (F ^ G))) + K[56] +  W8; D = D + H; H = H + (rotr(A, 2) ^ rotr(A, 13) ^ rotr(A, 22)) + ((A & B) | (C & (A | B)));
+	W9 = W9 + (rotr(W10, 7) ^ rotr(W10, 18) ^ (W10 >> 3U)) + W2 + (rotr(W7, 17) ^ rotr(W7, 19) ^ (W7 >> 10U)); 
+	G = G + (rotr(D, 6) ^ rotr(D, 11) ^ rotr(D, 25)) + (F ^ (D & (E ^ F))) + K[57] +  W9; C = C + G;
+	W10 = W10 + (rotr(W11, 7) ^ rotr(W11, 18) ^ (W11 >> 3U)) + W3 + (rotr(W8, 17) ^ rotr(W8, 19) ^ (W8 >> 10U)); 
+	F = F + (rotr(C, 6) ^ rotr(C, 11) ^ rotr(C, 25)) + (E ^ (C & (D ^ E))) + K[58] + W10; B = B + F;
+	W11 = W11 + (rotr(W12, 7) ^ rotr(W12, 18) ^ (W12 >> 3U)) + W4 + (rotr(W9, 17) ^ rotr(W9, 19) ^ (W9 >> 10U)); 
+	E = E + (rotr(B, 6) ^ rotr(B, 11) ^ rotr(B, 25)) + (D ^ (B & (C ^ D))) + K[59] + W11; A = A + E;
+	W12 = W12 + (rotr(W13, 7) ^ rotr(W13, 18) ^ (W13 >> 3U)) + W5 + (rotr(W10, 17) ^ rotr(W10, 19) ^ (W10 >> 10U)); 
+	D = D + (rotr(A, 6) ^ rotr(A, 11) ^ rotr(A, 25)) + (C ^ (A & (B ^ C))) + K[60] + W12; H = H + D;
+	W13 = W13 + (rotr(W14, 7) ^ rotr(W14, 18) ^ (W14 >> 3U)) + W6 + (rotr(W11, 17) ^ rotr(W11, 19) ^ (W11 >> 10U)); 
+	C = C + (rotr(H, 6) ^ rotr(H, 11) ^ rotr(H, 25)) + (B ^ (H & (A ^ B))) + K[61] + W13; G = G + C;
 
 	G+=0x1f83d9abU;
 	H+=0x5be0cd19U;

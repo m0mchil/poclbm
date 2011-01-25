@@ -17,6 +17,9 @@ from jsonrpc.json import JSONDecodeException
 def uint32(x):
 	return x & 0xffffffffL
 
+def rotr(x, y):
+	return (x>>y | x<<(32-y))
+
 def rot(x, y):
 	return (x<<y | x>>(32-y))
 	
@@ -32,7 +35,7 @@ def if_else(condition, trueVal, falseVal):
 		return falseVal
 
 class BitcoinMiner(Thread):
-	def __init__(self, platform, context, host, user, password, port=8332, frames=60, rate=1, askrate=5, worksize=-1, vectors=False):
+	def __init__(self, platform, context, host, user, password, port=8332, frames=30, rate=1, askrate=5, worksize=-1, vectors=False):
 		Thread.__init__(self)
 		socket.setdefaulttimeout(5)
 		(defines, self.rateDivisor) = if_else(vectors, ('-DVECTORS', 500), ('', 1000))
@@ -127,6 +130,7 @@ class BitcoinMiner(Thread):
 		queue = cl.CommandQueue(self.context)
 
 		base = lastRate = threadsRun = 0
+		f = np.zeros(8, dtype=np.uint32)
 		output = np.zeros(2, np.uint32)
 		output_buf = cl.Buffer(self.context, cl.mem_flags.WRITE_ONLY | cl.mem_flags.USE_HOST_PTR, hostbuf=output)
 
@@ -139,6 +143,7 @@ class BitcoinMiner(Thread):
 					continue
 				else:
 					if not work:
+						self.say('disconnected')
 						continue
 					elif work == 'stop':
 						return
@@ -154,12 +159,23 @@ class BitcoinMiner(Thread):
 					(state2[2], state2[6]) = sharound(state2[7],state2[0],state2[1],state2[2],state2[3],state2[4],state2[5],state2[6],data[1],0x71374491)
 					(state2[1], state2[5]) = sharound(state2[6],state2[7],state2[0],state2[1],state2[2],state2[3],state2[4],state2[5],data[2],0xB5C0FBCF)
 
+					f[0] = uint32(data[0] + (rotr(data[1], 7) ^ rotr(data[1], 18) ^ (data[1] >> 3)))
+					f[1] = uint32(data[1] + (rotr(data[2], 7) ^ rotr(data[2], 18) ^ (data[2] >> 3)) + 0x01100000)
+					f[2] = uint32(data[2] + (rotr(f[0], 17) ^ rotr(f[0], 19) ^ (f[0] >> 10)))
+					f[3] = uint32(0x11002000 + (rotr(f[1], 17) ^ rotr(f[1], 19) ^ (f[1] >> 10)))
+					f[4] = uint32(0x00000280 + (rotr(f[0], 7) ^ rotr(f[0], 18) ^ (f[0] >> 3)))
+					f[5] = uint32(f[0] + (rotr(f[1], 7) ^ rotr(f[1], 18) ^ (f[1] >> 3)))
+					f[6] = uint32(state[4] + (rotr(state2[1], 6) ^ rotr(state2[1], 11) ^ rotr(state2[1], 25)) + (state2[3] ^ (state2[1] & (state2[2] ^ state2[3]))) + 0xe9b5dba5)
+					f[7] = uint32((rotr(state2[5], 2) ^ rotr(state2[5], 13) ^ rotr(state2[5], 22)) + ((state2[5] & state2[6]) | (state2[7] & (state2[5] | state2[6]))))
+
 			kernelStart = time()
 			self.miner.search(	queue, (globalThreads, ), (self.worksize, ),
-								data[0], data[1], data[2],
 								state[0], state[1], state[2], state[3], state[4], state[5], state[6], state[7],
 								state2[1], state2[2], state2[3], state2[5], state2[6], state2[7],
-								target[6], target[7], pack('I', base), output_buf)
+								target[6], target[7],
+								pack('I', base),
+								f[0], f[1], f[2], f[3], f[4], f[5], f[6], f[7],
+								output_buf)
 			cl.enqueue_read_buffer(queue, output_buf, output)
 
 			threadsRun += globalThreads
