@@ -289,30 +289,25 @@ __kernel void search(	const uint state0, const uint state1, const uint state2, c
 	E = E + (rotr(B, 6) ^ rotr(B, 11) ^ rotr(B, 25)) + (D ^ (B & (C ^ D))) + K[59] + W11; A = A + E;
 	W12 = W12 + (rotr(W13, 7) ^ rotr(W13, 18) ^ (W13 >> 3U)) + W5 + (rotr(W10, 17) ^ rotr(W10, 19) ^ (W10 >> 10U)); 
 	D = D + (rotr(A, 6) ^ rotr(A, 11) ^ rotr(A, 25)) + (C ^ (A & (B ^ C))) + K[60] + W12; H = H + D;
-	W13 = W13 + (rotr(W14, 7) ^ rotr(W14, 18) ^ (W14 >> 3U)) + W6 + (rotr(W11, 17) ^ rotr(W11, 19) ^ (W11 >> 10U)); 
-	C = C + (rotr(H, 6) ^ rotr(H, 11) ^ rotr(H, 25)) + (B ^ (H & (A ^ B))) + K[61] + W13; G = G + C;
+	//W13 = W13 + (rotr(W14, 7) ^ rotr(W14, 18) ^ (W14 >> 3U)) + W6 + (rotr(W11, 17) ^ rotr(W11, 19) ^ (W11 >> 10U)); 
+	//C = C + (rotr(H, 6) ^ rotr(H, 11) ^ rotr(H, 25)) + (B ^ (H & (A ^ B))) + K[61] + W13; G = G + C;
 
-	G+=0x1f83d9abU;
+	//G+=0x1f83d9abU;
 	H+=0x5be0cd19U;
 
-	uint result;
-
 #ifdef VECTORS
-	if (result = belowOrEquals(H.x, targetH, G.x, targetG))
+	if (belowOrEquals(H.x, targetH, G.x, targetG))
 	{
-		output[0] = result;
-		output[1] = nonce.x;
+		output[0] = nonce.x;
 	}
-	else if (result = belowOrEquals(H.y, targetH, G.y, targetG))
+	else if (belowOrEquals(H.y, targetH, G.y, targetG))
 	{
-		output[0] = result;
-		output[1] = nonce.y;
+		output[0] = nonce.y;
 	}
 #else
-	if (result = belowOrEquals(H, targetH, G, targetG))
+	if (belowOrEquals(H, targetH, G, targetG))
 	{
-		output[0] = result;
-		output[1] = nonce;
+		output[0] = nonce;
 	}
 #endif
 }
