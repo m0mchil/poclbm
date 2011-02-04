@@ -298,16 +298,16 @@ __kernel void search(	const uint state0, const uint state1, const uint state2, c
 #ifdef VECTORS
 	if (belowOrEquals(H.x, targetH, G.x, targetG))
 	{
-		output[0] = nonce.x;
+		output[OUTPUT_SIZE] = output[nonce.x & OUTPUT_MASK] = nonce.x;
 	}
 	else if (belowOrEquals(H.y, targetH, G.y, targetG))
 	{
-		output[0] = nonce.y;
+		output[OUTPUT_SIZE] = output[nonce.y & OUTPUT_MASK] = nonce.y;
 	}
 #else
 	if (belowOrEquals(H, targetH, G, targetG))
 	{
-		output[0] = nonce;
+		output[OUTPUT_SIZE] = output[nonce & OUTPUT_MASK] = nonce;
 	}
 #endif
 }

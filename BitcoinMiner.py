@@ -26,6 +26,8 @@ K = np.array(
 
 work = np.zeros(64, np.uint32)
 
+OUTPUT_SIZE = 0x100
+
 def uint32(x):
 	return x & 0xffffffffL
 
@@ -111,21 +113,23 @@ def if_else(condition, trueVal, falseVal):
 		return falseVal
 
 class BitcoinMiner(Thread):
-	def __init__(self, platform, context, host, user, password, port=8332, frames=30, rate=1, askrate=5, worksize=-1, vectors=False):
+	def __init__(self, platform, device, host, user, password, port=8332, frames=30, rate=1, askrate=5, worksize=-1, vectors=False):
 		Thread.__init__(self)
 		socket.setdefaulttimeout(5)
 		(defines, self.rateDivisor) = if_else(vectors, ('-DVECTORS', 500), ('', 1000))
+		defines += (' -DOUTPUT_SIZE=' + str(OUTPUT_SIZE))
+		defines += (' -DOUTPUT_MASK=' + str(OUTPUT_SIZE - 1))
 
-		self.context = context
+		self.context = cl.Context([device], None, None)
 		self.rate = float(rate)
 		self.askrate = max(int(askrate), 1)
 		self.askrate = min(self.askrate, 10)
 		self.worksize = int(worksize)
 		self.frames = max(frames, 1)
 
-		if (self.context.devices[0].extensions.find('cl_amd_media_ops') != -1):
+		if (device.extensions.find('cl_amd_media_ops') != -1):
 			defines += ' -DBITALIGN'
-			
+
 		kernelFile = open('BitcoinMiner.cl', 'r')
 		self.miner = cl.Program(self.context, kernelFile.read()).build(defines)
 		kernelFile.close()
@@ -180,16 +184,16 @@ class BitcoinMiner(Thread):
 					lastWork = time()
 					work = None
 					if result:
-						(G, H) = hash(result['state'], result['data'][0], result['data'][1], result['data'][2], result['nonce'])
-						if H != 0:
-							self.sayLine('verification failed, check hardware!')
-						elif bytereverse(G) <= result['target']:
-							result['work']['data'] = result['work']['data'][:152] + pack('I', long(result['nonce'])).encode('hex') + result['work']['data'][160:]
-							accepted = self.getwork(result['work']['data'])
-							if accepted != None:
-								self.blockFound(pack('I', long(G)).encode('hex'), accepted)
-							else:
-								self.resultQueue.put(result)
+						for i in xrange(OUTPUT_SIZE):
+							if result['output'][i]:
+								(G, H) = hash(result['state'], result['data'][0], result['data'][1], result['data'][2], result['output'][i])
+								if H != 0:
+									self.sayLine('verification failed, check hardware!')
+								elif bytereverse(G) <= result['target']:
+									result['work']['data'] = result['work']['data'][:152] + pack('I', long(result['output'][i])).encode('hex') + result['work']['data'][160:]
+									accepted = self.getwork(result['work']['data'])
+									if accepted != None:
+										self.blockFound(pack('I', long(G)).encode('hex'), accepted)
 						result = None
 			except KeyboardInterrupt:
 				print '\nbye'
@@ -213,7 +217,7 @@ class BitcoinMiner(Thread):
 
 		base = lastRate = threadsRun = 0
 		f = np.zeros(8, np.uint32)
-		output = np.zeros(1, np.uint32)
+		output = np.zeros(OUTPUT_SIZE+1, np.uint32)
 		output_buf = cl.Buffer(self.context, cl.mem_flags.WRITE_ONLY | cl.mem_flags.USE_HOST_PTR, hostbuf=output)
 
 		work = None
@@ -270,15 +274,15 @@ class BitcoinMiner(Thread):
 			queue.finish()
 			kernelTime = time() - kernelStart
 
-			if output[0]:
+			if output[OUTPUT_SIZE]:
 				result = {}
 				result['work'] = work
 				result['data'] = data
 				result['state'] = state
 				result['target'] = target[6]
-				result['nonce'] = output[0]
+				result['output'] = np.array(output)
 				self.resultQueue.put(result)
-				output[0] = 0
+				output.fill(0)
 				cl.enqueue_write_buffer(queue, output_buf, output)
 
 			if (kernelTime < lower):
