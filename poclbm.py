@@ -15,6 +15,7 @@ parser.add_option('-d', '--device',   dest='device',   default=-1,          help
 parser.add_option('-a', '--askrate',  dest='askrate',  default=5,           help='how many seconds between getwork requests, default 5, max 10', type='int')
 parser.add_option('-w', '--worksize', dest='worksize', default=-1,          help='work group size, default is maximum returned by opencl', type='int')
 parser.add_option('-v', '--vectors',  dest='vectors',  action='store_true', help='use vectors')
+parser.add_option('--verbose',        dest='verbose',  action='store_true', help='verbose output, suitable for redirection to log file')
 (options, args) = parser.parse_args()
 
 platform = cl.get_platforms()[0]
@@ -26,5 +27,16 @@ if (options.device == -1 or options.device >= len(devices)):
 		print '[%d]\t%s' % (i, devices[i].name)
 	sys.exit()
 
-myMiner = BitcoinMiner(platform, devices[options.device], options.host, options.user, options.password, options.port, options.frames, options.rate, options.askrate, options.worksize, options.vectors)
+myMiner = BitcoinMiner(	platform,
+						devices[options.device],
+						options.host,
+						options.user,
+						options.password,
+						options.port,
+						options.frames,
+						options.rate,
+						options.askrate,
+						options.worksize,
+						options.vectors,
+						options.verbose)
 myMiner.mine()

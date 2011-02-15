@@ -1,18 +1,23 @@
 import sys
 import socket
+import httplib
 import traceback
 import numpy as np
 import pyopencl as cl
 
-from struct import *
-from Queue import Queue
-from Queue import Empty
+from base64 import b64encode
 from threading import Thread
 from time import sleep, time
+from json import dumps, loads
 from datetime import datetime
-from jsonrpc import ServiceProxy
-from jsonrpc.proxy import JSONRPCException
-from jsonrpc.json import JSONDecodeException
+from Queue import Queue, Empty
+from struct import pack, unpack
+
+VERSION = '20110215'
+
+USER_AGENT = 'poclbm/' + VERSION
+
+TIME_FORMAT = '%d/%m/%Y %H:%M:%S'
 
 K = np.array(
 	[0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
@@ -113,9 +118,8 @@ def if_else(condition, trueVal, falseVal):
 		return falseVal
 
 class BitcoinMiner(Thread):
-	def __init__(self, platform, device, host, user, password, port=8332, frames=30, rate=1, askrate=5, worksize=-1, vectors=False):
+	def __init__(self, platform, device, host, user, password, port=8332, frames=30, rate=1, askrate=5, worksize=-1, vectors=False, verbose=False):
 		Thread.__init__(self)
-		socket.setdefaulttimeout(5)
 		(defines, self.rateDivisor) = if_else(vectors, ('-DVECTORS', 500), ('', 1000))
 		defines += (' -DOUTPUT_SIZE=' + str(OUTPUT_SIZE))
 		defines += (' -DOUTPUT_MASK=' + str(OUTPUT_SIZE - 1))
@@ -126,6 +130,7 @@ class BitcoinMiner(Thread):
 		self.askrate = min(self.askrate, 10)
 		self.worksize = int(worksize)
 		self.frames = max(frames, 1)
+		self.verbose = verbose
 
 		if (device.extensions.find('cl_amd_media_ops') != -1):
 			defines += ' -DBITALIGN'
@@ -140,29 +145,56 @@ class BitcoinMiner(Thread):
 		self.workQueue = Queue()
 		self.resultQueue = Queue()
 
-		self.bitcoin = ServiceProxy('http://%s:%s@%s:%s' % (user, password, host, port))
+		self.host = '%s:%s' % (host.replace('http://', ''), port)
+		self.postdata = {"method": 'getwork', 'id': USER_AGENT}
+		self.headers = {"User-Agent": USER_AGENT,
+						"Content-type": "application/x-www-form-urlencoded",
+						"Authorization": 'Basic ' + b64encode('%s:%s' % (user, password))}
+		self.connection = None
 
 	def say(self, format, args=()):
-		sys.stdout.write('\r                                        \r' + format % args)
-		sys.stdout.flush()
+		if self.verbose:
+			print '%s,' % datetime.now().strftime(TIME_FORMAT), format % args
+		else:
+			sys.stdout.write('\r                                                            \r' + format % args)
+			sys.stdout.flush()
 
 	def sayLine(self, format, args=()):
-		self.say(format + '\n', args)
+		if not self.verbose:
+			format = '%s, %s\n' % (datetime.now().strftime(TIME_FORMAT), format)
+		self.say(format, args)
+
+	def hashrate(self, rate):
+		self.say('%s khash/s', rate)
+
+	def diff1Found(self, hash, target):
+		if self.verbose and target < 0xfffff000L:
+			self.sayLine('checking %s <= %s', (hash, target))
 
 	def blockFound(self, hash, accepted):
-		# designed to be overridden
-		self.sayLine('%s, %s, %s', (datetime.now().strftime("%d/%m/%Y %H:%M"), hash, if_else(accepted, 'accepted', 'invalid or stale')))
+		self.sayLine('%s, %s', (hash, if_else(accepted, 'accepted', 'invalid or stale')))
 
 	def getwork(self, data=None):
+		result = response = None
 		try:
-			if data:
-				return self.bitcoin.getwork(data)
+			if not self.connection:
+				self.connection = httplib.HTTPConnection(self.host, strict=True, timeout=5)
+			self.postdata['params'] = if_else(data, [data], [])
+			self.connection.request("POST", "/", dumps(self.postdata), self.headers)
+			response = self.connection.getresponse()
+			result = loads(response.read())
+			if result['error']:
+				self.say(result['error']['message'])
+				result = None
 			else:
-				return self.bitcoin.getwork()
-		except JSONRPCException, e:
-			self.say('%s', e.error['message'])
-		except (JSONDecodeException, IOError):
+				result = result['result']
+			return result
+		except (ValueError, IOError):
 			self.say('Problems communicating with bitcoin RPC')
+		finally:
+			if not result or not response or response.getheader('connection', '') != 'keep-alive':
+				self.connection.close()
+				self.connection = None
 
 	def mine(self):
 		self.start()
@@ -189,11 +221,13 @@ class BitcoinMiner(Thread):
 								(G, H) = hash(result['state'], result['data'][0], result['data'][1], result['data'][2], result['output'][i])
 								if H != 0:
 									self.sayLine('verification failed, check hardware!')
-								elif bytereverse(G) <= result['target']:
-									result['work']['data'] = result['work']['data'][:152] + pack('I', long(result['output'][i])).encode('hex') + result['work']['data'][160:]
-									accepted = self.getwork(result['work']['data'])
-									if accepted != None:
-										self.blockFound(pack('I', long(G)).encode('hex'), accepted)
+								else:
+									self.diff1Found(bytereverse(G), result['target'])
+									if bytereverse(G) <= result['target']:
+										result['work']['data'] = result['work']['data'][:152] + pack('I', long(result['output'][i])).encode('hex') + result['work']['data'][160:]
+										accepted = self.getwork(result['work']['data'])
+										if accepted != None:
+											self.blockFound(pack('I', long(G)).encode('hex'), accepted)
 						result = None
 			except KeyboardInterrupt:
 				print '\nbye'
@@ -267,7 +301,7 @@ class BitcoinMiner(Thread):
 			base = uint32(base + globalThreads)
 
 			if (time() - lastRate > self.rate):
-				self.say('%s khash/s', int((threadsRun / (time() - lastRate)) / self.rateDivisor))
+				self.hashrate(int((threadsRun / (time() - lastRate)) / self.rateDivisor))
 				threadsRun = 0
 				lastRate = time()
 
