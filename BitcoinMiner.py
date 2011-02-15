@@ -167,6 +167,9 @@ class BitcoinMiner(Thread):
 	def hashrate(self, rate):
 		self.say('%s khash/s', rate)
 
+	def failure(self, message):
+		self.sayLine(message)
+
 	def diff1Found(self, hash, target):
 		if self.verbose and target < 0xfffff000L:
 			self.sayLine('checking %s <= %s', (hash, target))
@@ -220,7 +223,7 @@ class BitcoinMiner(Thread):
 							if result['output'][i]:
 								(G, H) = hash(result['state'], result['data'][0], result['data'][1], result['data'][2], result['output'][i])
 								if H != 0:
-									self.sayLine('verification failed, check hardware!')
+									self.failure('verification failed, check hardware!')
 								else:
 									self.diff1Found(bytereverse(G), result['target'])
 									if bytereverse(G) <= result['target']:
