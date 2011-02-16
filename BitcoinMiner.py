@@ -13,7 +13,7 @@ from datetime import datetime
 from Queue import Queue, Empty
 from struct import pack, unpack
 
-VERSION = '20110215'
+VERSION = '201102.beta'
 
 USER_AGENT = 'poclbm/' + VERSION
 
@@ -192,7 +192,7 @@ class BitcoinMiner(Thread):
 			else:
 				result = result['result']
 			return result
-		except (ValueError, IOError):
+		except (IOError, httplib.HTTPException, ValueError):
 			self.say('Problems communicating with bitcoin RPC')
 		finally:
 			if not result or not response or response.getheader('connection', '') != 'keep-alive':
