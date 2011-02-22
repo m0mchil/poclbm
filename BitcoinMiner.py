@@ -5,7 +5,7 @@ import traceback
 import numpy as np
 import pyopencl as cl
 
-from binascii import crc32
+from hashlib import md5
 from base64 import b64encode
 from threading import Thread
 from time import sleep, time
@@ -55,23 +55,10 @@ def sharound(a,b,c,d,e,f,g,h,x,K):
 	return (uint32(d + t1), uint32(t1+t2))
 
 def hash(midstate, data0, data1, data2, nonce):
-	work[0]=data0
-	work[1]=data1
-	work[2]=data2
-	work[3]=nonce
-	work[4]=0x80000000
-	work[5]=0x00000000
-	work[6]=0x00000000
-	work[7]=0x00000000
-	work[8]=0x00000000
-	work[9]=0x00000000
-	work[10]=0x00000000
-	work[11]=0x00000000
-	work[12]=0x00000000
-	work[13]=0x00000000
-	work[14]=0x00000000
-	work[4]=0x80000000
-	work[15]=0x00000280
+	work[0]=data0; work[1]=data1; work[2]=data2; work[3]=nonce
+	work[4]=0x80000000; work[5]=0x00000000; work[6]=0x00000000; work[7]=0x00000000
+	work[8]=0x00000000; work[9]=0x00000000; work[10]=0x00000000; work[11]=0x00000000
+	work[12]=0x00000000; work[13]=0x00000000; work[14]=0x00000000; work[15]=0x00000280
 	state = np.copy(midstate)
 
 	for i in xrange(64):
@@ -79,31 +66,13 @@ def hash(midstate, data0, data1, data2, nonce):
 			work[i] = R(work[i-2], work[i-7], work[i-15], work[i-16])
 		(state[~(i-4)&7], state[~(i-8)&7]) = sharound(state[(~(i-1)&7)],state[~(i-2)&7],state[~(i-3)&7],state[~(i-4)&7],state[~(i-5)&7],state[~(i-6)&7],state[~(i-7)&7],state[~(i-8)&7],work[i],K[i])
 
-	work[0]=midstate[0]+state[0]
-	work[1]=midstate[1]+state[1]
-	work[2]=midstate[2]+state[2]
-	work[3]=midstate[3]+state[3]
-	work[4]=midstate[4]+state[4]
-	work[5]=midstate[5]+state[5]
-	work[6]=midstate[6]+state[6]
-	work[7]=midstate[7]+state[7]
-	work[8]=0x80000000
-	work[9]=0x00000000
-	work[10]=0x00000000
-	work[11]=0x00000000
-	work[12]=0x00000000
-	work[13]=0x00000000
-	work[14]=0x00000000
-	work[15]=0x00000100
+	work[0]=midstate[0]+state[0]; work[1]=midstate[1]+state[1]; work[2]=midstate[2]+state[2]; work[3]=midstate[3]+state[3]
+	work[4]=midstate[4]+state[4]; work[5]=midstate[5]+state[5]; work[6]=midstate[6]+state[6]; work[7]=midstate[7]+state[7]
+	work[8]=0x80000000; work[9]=0x00000000; work[10]=0x00000000; work[11]=0x00000000;
+	work[12]=0x00000000; work[13]=0x00000000; work[14]=0x00000000; work[15]=0x00000100
 
-	state[0]=0x6a09e667
-	state[1]=0xbb67ae85
-	state[2]=0x3c6ef372
-	state[3]=0xa54ff53a
-	state[4]=0x510e527f
-	state[5]=0x9b05688c
-	state[6]=0x1f83d9ab
-	state[7]=0x5be0cd19
+	state[0]=0x6a09e667; state[1]=0xbb67ae85; state[2]=0x3c6ef372; state[3]=0xa54ff53a
+	state[4]=0x510e527f; state[5]=0x9b05688c; state[6]=0x1f83d9ab; state[7]=0x5be0cd19
 
 	for i in xrange(62):
 		if i > 15:
@@ -139,7 +108,8 @@ class BitcoinMiner(Thread):
 		kernelFile = open('BitcoinMiner.cl', 'r')
 		kernel = kernelFile.read()
 		kernelFile.close()
-		cacheName = '%X.elf' % uint32(crc32(''.join([device.platform.name, device.platform.version, device.name, defines, kernel])))
+		m = md5(); m.update(''.join([device.platform.name, device.platform.version, device.name, defines, kernel]))
+		cacheName = '%s.elf' % m.hexdigest()
 		binaryFile = None
 		try:
 			binaryFile = open(cacheName, 'rb')
