@@ -5,6 +5,7 @@ import traceback
 import numpy as np
 import pyopencl as cl
 
+from binascii import crc32
 from base64 import b64encode
 from threading import Thread
 from time import sleep, time
@@ -136,8 +137,19 @@ class BitcoinMiner(Thread):
 			defines += ' -DBITALIGN'
 
 		kernelFile = open('BitcoinMiner.cl', 'r')
-		self.miner = cl.Program(self.context, kernelFile.read()).build(defines)
+		kernel = kernelFile.read()
 		kernelFile.close()
+		cacheName = '%X.elf' % uint32(crc32(''.join([device.name, defines, kernel])))
+		binaryFile = None
+		try:
+			binaryFile = open(cacheName, 'rb')
+			self.miner = cl.Program(self.context, [device], [binaryFile.read()]).build(defines)
+			binaryFile.close()
+		except IOError:
+			self.miner = cl.Program(self.context, kernel).build(defines)
+			binaryFile = open(cacheName, 'wb')
+			binaryFile.write(self.miner.binaries[0])
+			binaryFile.close()
 
 		if (self.worksize == -1):
 			self.worksize = self.miner.search.get_work_group_info(cl.kernel_work_group_info.WORK_GROUP_SIZE, self.context.devices[0])
@@ -156,8 +168,8 @@ class BitcoinMiner(Thread):
 		if self.verbose:
 			print '%s,' % datetime.now().strftime(TIME_FORMAT), format % args
 		else:
-			sys.stdout.write('\r                                                            \r' + format % args)
-			sys.stdout.flush()
+			sys.stdout.write('\r                                                            \r%s' % (format % args))
+		sys.stdout.flush()
 
 	def sayLine(self, format, args=()):
 		if not self.verbose:
