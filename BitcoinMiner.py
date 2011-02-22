@@ -119,7 +119,7 @@ def if_else(condition, trueVal, falseVal):
 		return falseVal
 
 class BitcoinMiner(Thread):
-	def __init__(self, platform, device, host, user, password, port=8332, frames=30, rate=1, askrate=5, worksize=-1, vectors=False, verbose=False):
+	def __init__(self, device, host, user, password, port=8332, frames=30, rate=1, askrate=5, worksize=-1, vectors=False, verbose=False):
 		Thread.__init__(self)
 		(defines, self.rateDivisor) = if_else(vectors, ('-DVECTORS', 500), ('', 1000))
 		defines += (' -DOUTPUT_SIZE=' + str(OUTPUT_SIZE))
@@ -139,7 +139,7 @@ class BitcoinMiner(Thread):
 		kernelFile = open('BitcoinMiner.cl', 'r')
 		kernel = kernelFile.read()
 		kernelFile.close()
-		cacheName = '%X.elf' % uint32(crc32(''.join([device.name, defines, kernel])))
+		cacheName = '%X.elf' % uint32(crc32(''.join([device.platform.name, device.platform.version, device.name, defines, kernel])))
 		binaryFile = None
 		try:
 			binaryFile = open(cacheName, 'rb')

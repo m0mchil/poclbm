@@ -16,19 +16,29 @@ parser.add_option('-a', '--askrate',  dest='askrate',  default=5,           help
 parser.add_option('-w', '--worksize', dest='worksize', default=-1,          help='work group size, default is maximum returned by opencl', type='int')
 parser.add_option('-v', '--vectors',  dest='vectors',  action='store_true', help='use vectors')
 parser.add_option('--verbose',        dest='verbose',  action='store_true', help='verbose output, suitable for redirection to log file')
+parser.add_option('--platform',       dest='platform', default=-1,          help='use platform by id', type='int')
 (options, args) = parser.parse_args()
 
-platform = cl.get_platforms()[0]
-devices = platform.get_devices()
+platforms = cl.get_platforms()
 
+
+if options.platform >= len(platforms) or (options.platform == -1 and len(platforms) > 1):
+	print 'Wrong platform or more than one OpenCL platforms found, use --platform to select one of the following\n'
+	for i in xrange(len(platforms)):
+		print '[%d]\t%s' % (i, platforms[i].name)
+	sys.exit()
+
+if options.platform == -1:
+	options.platform = 0
+
+devices = platforms[options.platform].get_devices()
 if (options.device == -1 or options.device >= len(devices)):
 	print 'No device specified or device not found, use -d to specify one of the following\n'
 	for i in xrange(len(devices)):
 		print '[%d]\t%s' % (i, devices[i].name)
 	sys.exit()
 
-myMiner = BitcoinMiner(	platform,
-						devices[options.device],
+myMiner = BitcoinMiner(	devices[options.device],
 						options.host,
 						options.user,
 						options.password,
