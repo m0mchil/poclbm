@@ -146,11 +146,17 @@ class BitcoinMiner(Thread):
 			format = '%s, %s\n' % (datetime.now().strftime(TIME_FORMAT), format)
 		self.say(format, args)
 
+	def exit(self):
+		self.workQueue.put('stop')
+		sleep(1.1)
+		sys.exit()
+
 	def hashrate(self, rate):
 		self.say('%s khash/s', rate)
 
 	def failure(self, message):
-		self.sayLine(message)
+		print '\n%s' % message
+		self.exit()
 
 	def diff1Found(self, hash, target):
 		if self.verbose and target < 0xfffff000L:
@@ -167,6 +173,8 @@ class BitcoinMiner(Thread):
 			self.postdata['params'] = if_else(data, [data], [])
 			self.connection.request("POST", "/", dumps(self.postdata), self.headers)
 			response = self.connection.getresponse()
+			if response.status == httplib.UNAUTHORIZED:
+				self.failure('Wrong username or password')
 			result = loads(response.read())
 			if result['error']:
 				self.say(result['error']['message'])
@@ -216,10 +224,8 @@ class BitcoinMiner(Thread):
 						result = None
 			except KeyboardInterrupt:
 				print '\nbye'
-				self.workQueue.put('stop')
-				sleep(1.1)
-				break
-			except:
+				self.exit()
+			except Exception:
 				self.sayLine("Unexpected error:")
 				traceback.print_exc()
 
@@ -251,14 +257,11 @@ class BitcoinMiner(Thread):
 						continue
 					elif work == 'stop':
 						return
-					try:
-						data   = np.array(unpack('IIIIIIIIIIIIIIII', work['data'][128:].decode('hex')), dtype=np.uint32)
-						state  = np.array(unpack('IIIIIIII',         work['midstate'].decode('hex')),   dtype=np.uint32)
-						target = np.array(unpack('IIIIIIII',         work['target'].decode('hex')),     dtype=np.uint32)
-						(target[0], target[1]) = (uint32(0xFFFF0000), 0)
-					except Exception as e:
-						self.sayLine('Wrong data format from RPC!')
-						sys.exit()
+
+					data   = np.array(unpack('IIIIIIIIIIIIIIII', work['data'][128:].decode('hex')), dtype=np.uint32)
+					state  = np.array(unpack('IIIIIIII',         work['midstate'].decode('hex')),   dtype=np.uint32)
+					target = np.array(unpack('IIIIIIII',         work['target'].decode('hex')),     dtype=np.uint32)
+					(target[0], target[1]) = (uint32(0xFFFF0000), 0)
 					state2 = np.array(state)
 					for i in xrange(3):
 						(state2[~(i-4)&7], state2[~(i-8)&7]) = sharound(state2[(~(i-1)&7)],state2[~(i-2)&7],state2[~(i-3)&7],state2[~(i-4)&7],state2[~(i-5)&7],state2[~(i-6)&7],state2[~(i-7)&7],state2[~(i-8)&7],data[i],K[i])
