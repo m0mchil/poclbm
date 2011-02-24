@@ -185,7 +185,7 @@ class BitcoinMiner(Thread):
 		except (IOError, httplib.HTTPException, ValueError):
 			self.say('Problems communicating with bitcoin RPC')
 		finally:
-			if not result or not response or response.getheader('connection', '') != 'keep-alive':
+			if self.connection and (not result or not response or response.getheader('connection', '') != 'keep-alive'):
 				self.connection.close()
 				self.connection = None
 
