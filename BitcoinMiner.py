@@ -150,14 +150,13 @@ class BitcoinMiner(Thread):
 	def exit(self):
 		self.workQueue.put('stop')
 		sleep(1.1)
-		sys.exit()
 
 	def hashrate(self, rate):
 		self.say('%s khash/s', rate)
 
 	def failure(self, message):
 		print '\n%s' % message
-		self.exit()
+		sys.exit()
 
 	def diff1Found(self, hash, target):
 		if self.verbose and target < 0xfffff000L:
@@ -223,9 +222,6 @@ class BitcoinMiner(Thread):
 										if accepted != None:
 											self.blockFound(pack('I', long(G)).encode('hex'), accepted)
 						result = None
-			except KeyboardInterrupt:
-				print '\nbye'
-				self.exit()
 			except Exception:
 				self.sayLine("Unexpected error:")
 				traceback.print_exc()

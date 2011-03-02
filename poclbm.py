@@ -42,15 +42,23 @@ if (options.device == -1 or options.device >= len(devices)):
 		print '[%d]\t%s' % (i, devices[i].name)
 	sys.exit()
 
-myMiner = BitcoinMiner(	devices[options.device],
-						options.host,
-						options.user,
-						options.password,
-						options.port,
-						options.frames,
-						options.rate,
-						options.askrate,
-						options.worksize,
-						options.vectors,
-						options.verbose)
-myMiner.mine()
+miner = None
+try:
+	miner = BitcoinMiner(	devices[options.device],
+							options.host,
+							options.user,
+							options.password,
+							options.port,
+							options.frames,
+							options.rate,
+							options.askrate,
+							options.worksize,
+							options.vectors,
+							options.verbose)
+	miner.mine()
+except KeyboardInterrupt:
+	print '\nbye'
+except SystemExit:
+	pass
+finally:
+	if miner: miner.exit()
