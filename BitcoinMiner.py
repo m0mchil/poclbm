@@ -110,16 +110,17 @@ class BitcoinMiner(Thread):
 		kernelFile.close()
 		m = md5(); m.update(''.join([device.platform.name, device.platform.version, device.name, defines, kernel]))
 		cacheName = '%s.elf' % m.hexdigest()
-		binaryFile = None
+		binary = None
 		try:
-			binaryFile = open(cacheName, 'rb')
-			self.miner = cl.Program(self.context, [device], [binaryFile.read()]).build(defines)
-			binaryFile.close()
-		except IOError:
+			binary = open(cacheName, 'rb')
+			self.miner = cl.Program(self.context, [device], [binary.read()]).build(defines)
+		except (IOError, cl.LogicError):
 			self.miner = cl.Program(self.context, kernel).build(defines)
-			binaryFile = open(cacheName, 'wb')
-			binaryFile.write(self.miner.binaries[0])
-			binaryFile.close()
+			binaryW = open(cacheName, 'wb')
+			binaryW.write(self.miner.binaries[0])
+			binaryW.close()
+		finally:
+			if binary: binary.close()
 
 		if (self.worksize == -1):
 			self.worksize = self.miner.search.get_work_group_info(cl.kernel_work_group_info.WORK_GROUP_SIZE, self.context.devices[0])
