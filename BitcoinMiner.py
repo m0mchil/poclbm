@@ -14,7 +14,7 @@ from datetime import datetime
 from Queue import Queue, Empty
 from struct import pack, unpack
 
-VERSION = '20110222'
+VERSION = '201103.beta'
 
 USER_AGENT = 'poclbm/' + VERSION
 
