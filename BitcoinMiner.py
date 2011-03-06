@@ -258,7 +258,7 @@ class BitcoinMiner(Thread):
 					data   = np.array(unpack('IIIIIIIIIIIIIIII', work['data'][128:].decode('hex')), dtype=np.uint32)
 					state  = np.array(unpack('IIIIIIII',         work['midstate'].decode('hex')),   dtype=np.uint32)
 					target = np.array(unpack('IIIIIIII',         work['target'].decode('hex')),     dtype=np.uint32)
-					(target[0], target[1]) = (uint32(0xFFFF0000), 0)
+					(target[0], target[1]) = (uint32(0xFFFFFFFF), 0)
 					state2 = np.array(state)
 					for i in xrange(3):
 						(state2[~(i-4)&7], state2[~(i-8)&7]) = sharound(state2[(~(i-1)&7)],state2[~(i-2)&7],state2[~(i-3)&7],state2[~(i-4)&7],state2[~(i-5)&7],state2[~(i-6)&7],state2[~(i-7)&7],state2[~(i-8)&7],data[i],K[i])
