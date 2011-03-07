@@ -101,6 +101,7 @@ class BitcoinMiner(Thread):
 		self.worksize = int(worksize)
 		self.frames = max(frames, 1)
 		self.verbose = verbose
+		self.stop = False
 
 		if (device.extensions.find('cl_amd_media_ops') != -1):
 			defines += ' -DBITALIGN'
@@ -148,25 +149,24 @@ class BitcoinMiner(Thread):
 		self.say(format, args)
 
 	def exit(self):
-		self.workQueue.put('stop')
-		sleep(1.1)
+		self.stop = True
 
 	def hashrate(self, rate):
 		self.say('%s khash/s', rate)
 
 	def failure(self, message):
 		print '\n%s' % message
-		sys.exit()
+		self.exit()
 
 	def diff1Found(self, hash, target):
-		if self.verbose and target < 0xfffff000L:
+		if self.verbose and target < 0xFFFF0000L:
 			self.sayLine('checking %s <= %s', (hash, target))
 
 	def blockFound(self, hash, accepted):
 		self.sayLine('%s, %s', (hash, if_else(accepted, 'accepted', 'invalid or stale')))
 
 	def getwork(self, data=None):
-		result = response = None
+		response = None
 		try:
 			if not self.connection:
 				self.connection = httplib.HTTPConnection(self.host, strict=True, timeout=5)
@@ -174,14 +174,11 @@ class BitcoinMiner(Thread):
 			self.connection.request("POST", "/", dumps(self.postdata), self.headers)
 			response = self.connection.getresponse()
 			if response.status == httplib.UNAUTHORIZED:
-				self.failure('Wrong username or password')
+				self.failure('Wrong username or password');	return None
 			result = loads(response.read())
 			if result['error']:
-				self.say(result['error']['message'])
-				result = None
-			else:
-				result = result['result']
-			return result
+				self.say(result['error']['message']); return  None
+			return result['result']
 		except (IOError, httplib.HTTPException, ValueError):
 			self.say('Problems communicating with bitcoin RPC')
 		finally:
@@ -195,14 +192,14 @@ class BitcoinMiner(Thread):
 		lastWork = 0
 		work = result = None
 		while True:
+			if self.stop: return
 			try:
 				if not work:
 					work = self.getwork()
 
 				try:
 					result = self.resultQueue.get(True, 1)
-				except Empty:
-					pass
+				except Empty: pass
 
 				if result or (time() - lastWork > self.askrate):
 					self.workQueue.put(work)
@@ -213,7 +210,7 @@ class BitcoinMiner(Thread):
 							if result['output'][i]:
 								(G, H) = hash(result['state'], result['data'][0], result['data'][1], result['data'][2], result['output'][i])
 								if H != 0:
-									self.failure('verification failed, check hardware!')
+									self.failure('Verification failed, check hardware!')
 								else:
 									self.diff1Found(bytereverse(G), result['target'])
 									if bytereverse(G) <= result['target']:
@@ -244,16 +241,13 @@ class BitcoinMiner(Thread):
 
 		work = None
 		while True:
+			if self.stop: return
 			if (not work) or (not self.workQueue.empty()):
 				try:
 					work = self.workQueue.get(True, 1)
-				except Empty:
-					continue
+				except Empty: continue
 				else:
-					if not work:
-						continue
-					elif work == 'stop':
-						return
+					if not work: continue
 
 					data   = np.array(unpack('IIIIIIIIIIIIIIII', work['data'][128:].decode('hex')), dtype=np.uint32)
 					state  = np.array(unpack('IIIIIIII',         work['midstate'].decode('hex')),   dtype=np.uint32)

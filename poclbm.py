@@ -58,7 +58,5 @@ try:
 	miner.mine()
 except KeyboardInterrupt:
 	print '\nbye'
-except SystemExit:
-	pass
 finally:
 	if miner: miner.exit()
