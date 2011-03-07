@@ -166,7 +166,7 @@ class BitcoinMiner(Thread):
 		self.sayLine('%s, %s', (hash, if_else(accepted, 'accepted', 'invalid or stale')))
 
 	def getwork(self, data=None):
-		response = None
+		result = response = None
 		try:
 			if not self.connection:
 				self.connection = httplib.HTTPConnection(self.host, strict=True, timeout=5)
