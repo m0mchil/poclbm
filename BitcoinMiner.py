@@ -121,7 +121,7 @@ class BitcoinMiner():
 		self.worksize = int(worksize)
 		self.frames = max(frames, 1)
 		self.verbose = verbose
-		self.update = self.stop = False
+		self.longPollActive = self.update = self.stop = False
 		self.lock = RLock()
 		self.lastWork = 0
 
@@ -245,9 +245,11 @@ class BitcoinMiner():
 					result = None
 					if not connection:
 						connection = httplib.HTTPConnection(host, timeout=LONG_POLL_TIMEOUT)
+					self.longPollActive = True
 					(result, response) = self.request(connection, url)
+					self.longPollActive = False
 					self.queueWork(result['result'])
-					self.sayLine('long poll answered, restarted')
+					self.sayLine('long poll: new block')
 				except NotAuthorized:
 					self.sayLine('long poll: Wrong username or password')
 				except RPCError as e:
@@ -265,7 +267,7 @@ class BitcoinMiner():
 
 	def queueWork(self, work=None):
 		with self.lock:
-			if work or self.update or time() - self.lastWork > if_else(self.longPollURL == '', self.askrate, LONG_POLL_MAX_ASKRATE):
+			if work or self.update or time() - self.lastWork > if_else(self.longPollActive, LONG_POLL_MAX_ASKRATE, self.askrate):
 				if not work: work = self.getwork()
 				self.workQueue.put(work)
 				if work:
