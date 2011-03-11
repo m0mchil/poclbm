@@ -7,18 +7,36 @@ import pyopencl as cl
 
 from hashlib import md5
 from base64 import b64encode
-from threading import Thread
 from time import sleep, time
 from json import dumps, loads
 from datetime import datetime
+from urlparse import urlsplit
 from Queue import Queue, Empty
 from struct import pack, unpack
+from threading import Thread, RLock
 
 VERSION = '201103.beta'
 
 USER_AGENT = 'poclbm/' + VERSION
 
 TIME_FORMAT = '%d/%m/%Y %H:%M:%S'
+
+TIMEOUT = 5
+
+LONG_POLL_TIMEOUT = 3600
+
+LONG_POLL_MAX_ASKRATE = 60 - TIMEOUT
+
+MAX_REDIRECTS = 3
+
+# Socket wrapper to enable socket.TCP_NODELAY
+realsocket = socket.socket
+def socketwrap(family=socket.AF_INET, type=socket.SOCK_STREAM, proto=0):
+	sockobj = realsocket(family, type, proto)
+	sockobj.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+	return sockobj
+
+socket.socket = socketwrap
 
 K = np.array(
 	[0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
@@ -87,10 +105,12 @@ def if_else(condition, trueVal, falseVal):
 	else:
 		return falseVal
 
-class BitcoinMiner(Thread):
+class NotAuthorized(Exception): pass
+class RPCError(Exception): pass
+
+class BitcoinMiner():
 	def __init__(self, device, host, user, password, port=8332, frames=30, rate=1, askrate=5, worksize=-1, vectors=False, verbose=False):
-		Thread.__init__(self)
-		(defines, self.rateDivisor) = if_else(vectors, ('-DVECTORS', 500), ('', 1000))
+		(defines, self.rateDivisor, self.hashspace) = if_else(vectors, ('-DVECTORS', 500, 0x7FFFFFFF), ('', 1000, 0xFFFFFFFF))
 		defines += (' -DOUTPUT_SIZE=' + str(OUTPUT_SIZE))
 		defines += (' -DOUTPUT_MASK=' + str(OUTPUT_SIZE - 1))
 
@@ -101,7 +121,9 @@ class BitcoinMiner(Thread):
 		self.worksize = int(worksize)
 		self.frames = max(frames, 1)
 		self.verbose = verbose
-		self.stop = False
+		self.update = self.stop = False
+		self.lock = RLock()
+		self.lastWork = 0
 
 		if (device.extensions.find('cl_amd_media_ops') != -1):
 			defines += ' -DBITALIGN'
@@ -130,18 +152,22 @@ class BitcoinMiner(Thread):
 		self.resultQueue = Queue()
 
 		self.host = '%s:%s' % (host.replace('http://', ''), port)
-		self.postdata = {"method": 'getwork', 'id': USER_AGENT}
-		self.headers = {"User-Agent": USER_AGENT,
-						"Content-type": "application/x-www-form-urlencoded",
-						"Authorization": 'Basic ' + b64encode('%s:%s' % (user, password))}
+		self.postdata = {"method": 'getwork', 'id': 'json'}
+		self.headers = {"User-Agent": USER_AGENT, "Authorization": 'Basic ' + b64encode('%s:%s' % (user, password))}
 		self.connection = None
 
+		self.longPollURL = ''
+		longPollThread = Thread(target=self.longPollThread)
+		longPollThread.daemon = True
+		longPollThread.start()
+
 	def say(self, format, args=()):
-		if self.verbose:
-			print '%s,' % datetime.now().strftime(TIME_FORMAT), format % args
-		else:
-			sys.stdout.write('\r                                                            \r%s' % (format % args))
-		sys.stdout.flush()
+		with self.lock:
+			if self.verbose:
+				print '%s,' % datetime.now().strftime(TIME_FORMAT), format % args
+			else:
+				sys.stdout.write('\r                                                            \r%s' % (format % args))
+			sys.stdout.flush()
 
 	def sayLine(self, format, args=()):
 		if not self.verbose:
@@ -165,20 +191,36 @@ class BitcoinMiner(Thread):
 	def blockFound(self, hash, accepted):
 		self.sayLine('%s, %s', (hash, if_else(accepted, 'accepted', 'invalid or stale')))
 
+	def request(self, connection, url, data=None):
+		if data: connection.request('POST', url, data, self.headers)
+		else: connection.request('GET', url, headers=self.headers)
+		response = connection.getresponse()
+		if response.status == httplib.UNAUTHORIZED: raise NotAuthorized()
+		r = MAX_REDIRECTS
+		while response.status == httplib.TEMPORARY_REDIRECT:
+			response.read()
+			url = response.getheader('Location', '')
+			if r == 0 or url == '': raise HTTPException()
+			connection.request('GET', url, headers=self.headers)
+			response = connection.getresponse();
+			r -= 1
+		self.longPollURL = response.getheader('X-Long-Polling', '')
+		result = loads(response.read())
+		if result['error']:	raise RPCError(result['error']['message'])
+		return (result, response)
+
 	def getwork(self, data=None):
 		result = response = None
 		try:
 			if not self.connection:
-				self.connection = httplib.HTTPConnection(self.host, strict=True, timeout=5)
+				self.connection = httplib.HTTPConnection(self.host, strict=True, timeout=TIMEOUT)
 			self.postdata['params'] = if_else(data, [data], [])
-			self.connection.request("POST", "/", dumps(self.postdata), self.headers)
-			response = self.connection.getresponse()
-			if response.status == httplib.UNAUTHORIZED:
-				self.failure('Wrong username or password');	return None
-			result = loads(response.read())
-			if result['error']:
-				self.say(result['error']['message']); return  None
+			(result, response) = self.request(self.connection, '/', dumps(self.postdata))
 			return result['result']
+		except NotAuthorized:
+			self.failure('Wrong username or password')
+		except RPCError as e:
+			self.say('%s', e)
 		except (IOError, httplib.HTTPException, ValueError):
 			self.say('Problems communicating with bitcoin RPC')
 		finally:
@@ -186,44 +228,80 @@ class BitcoinMiner(Thread):
 				self.connection.close()
 				self.connection = None
 
-	def mine(self):
-		self.start()
+	def longPollThread(self):
+		connection = None
+		while True:
+			if self.stop: return
+			sleep(1)
+			url = self.longPollURL
+			if url != '':
+				host = self.host
+				parsedUrl = urlsplit(url)
+				if parsedUrl.netloc != '':
+					host = parsedUrl.netloc
+					url = url[url.find(host)+len(host):]
+					if url == '': url = '/'
+				try:
+					result = None
+					if not connection:
+						connection = httplib.HTTPConnection(host, timeout=LONG_POLL_TIMEOUT)
+					(result, response) = self.request(connection, url)
+					self.queueWork(result['result'])
+					self.sayLine('long poll answered, restarted')
+				except NotAuthorized:
+					self.sayLine('long poll: Wrong username or password')
+				except RPCError as e:
+					self.sayLine('long poll: %s', e)
+				except ValueError:
+					self.update = True
+				except (IOError, httplib.HTTPException):
+					if self.verbose:
+						self.say('Long poll exception:')
+						traceback.print_exc()
+				finally:
+					if connection and (not result or not response or response.getheader('connection', '') != 'keep-alive'):
+						connection.close()
+						connection = None
 
-		lastWork = 0
-		work = result = None
+	def queueWork(self, work=None):
+		with self.lock:
+			if work or self.update or time() - self.lastWork > if_else(self.longPollURL == '', self.askrate, LONG_POLL_MAX_ASKRATE):
+				if not work: work = self.getwork()
+				self.workQueue.put(work)
+				if work:
+					self.lastWork = time()
+					self.update = False
+
+	def mine(self):
+		self.stop = False
+		Thread(target=self.miningThread).start()
+
 		while True:
 			if self.stop: return
 			try:
-				if not work:
-					work = self.getwork()
+				self.queueWork()
 
 				try:
 					result = self.resultQueue.get(True, 1)
 				except Empty: pass
-
-				if result or (time() - lastWork > self.askrate):
-					self.workQueue.put(work)
-					lastWork = time()
-					work = None
-					if result:
-						for i in xrange(OUTPUT_SIZE):
-							if result['output'][i]:
-								(G, H) = hash(result['state'], result['data'][0], result['data'][1], result['data'][2], result['output'][i])
-								if H != 0:
-									self.failure('Verification failed, check hardware!')
-								else:
-									self.diff1Found(bytereverse(G), result['target'])
-									if bytereverse(G) <= result['target']:
-										result['work']['data'] = result['work']['data'][:152] + pack('I', long(result['output'][i])).encode('hex') + result['work']['data'][160:]
-										accepted = self.getwork(result['work']['data'])
-										if accepted != None:
-											self.blockFound(pack('I', long(G)).encode('hex'), accepted)
-						result = None
+				else:
+					for i in xrange(OUTPUT_SIZE):
+						if result['output'][i]:
+							(G, H) = hash(result['state'], result['data'][0], result['data'][1], result['data'][2], result['output'][i])
+							if H != 0:
+								self.failure('Verification failed, check hardware!')
+							else:
+								self.diff1Found(bytereverse(G), result['target'])
+								if bytereverse(G) <= result['target']:
+									result['work']['data'] = result['work']['data'][:152] + pack('I', long(result['output'][i])).encode('hex') + result['work']['data'][160:]
+									accepted = self.getwork(result['work']['data'])
+									if accepted != None:
+										self.blockFound(pack('I', long(G)).encode('hex'), accepted)
 			except Exception:
 				self.sayLine("Unexpected error:")
 				traceback.print_exc()
 
-	def run(self):
+	def miningThread(self):
 		frame = float(1)/float(self.frames)
 		window = frame/30
 		upper = frame + window
@@ -249,6 +327,7 @@ class BitcoinMiner(Thread):
 				else:
 					if not work: continue
 
+					noncesLeft = self.hashspace
 					data   = np.array(unpack('IIIIIIIIIIIIIIII', work['data'][128:].decode('hex')), dtype=np.uint32)
 					state  = np.array(unpack('IIIIIIII',         work['midstate'].decode('hex')),   dtype=np.uint32)
 					target = np.array(unpack('IIIIIIII',         work['target'].decode('hex')),     dtype=np.uint32)
@@ -276,6 +355,7 @@ class BitcoinMiner(Thread):
 								output_buf)
 			cl.enqueue_read_buffer(queue, output_buf, output)
 
+			noncesLeft -= globalThreads
 			threadsRun += globalThreads
 			base = uint32(base + globalThreads)
 
@@ -286,6 +366,10 @@ class BitcoinMiner(Thread):
 
 			queue.finish()
 			kernelTime = time() - kernelStart
+
+			if noncesLeft < (TIMEOUT / max(kernelTime, lower)) * globalThreads:
+				self.update = True
+				noncesLeft = 0xFFFFFFFFFFFF
 
 			if output[OUTPUT_SIZE]:
 				result = {}
