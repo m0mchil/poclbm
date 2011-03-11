@@ -254,9 +254,7 @@ class BitcoinMiner():
 					self.sayLine('long poll: Wrong username or password')
 				except RPCError as e:
 					self.sayLine('long poll: %s', e)
-				except ValueError:
-					self.update = True
-				except (IOError, httplib.HTTPException):
+				except (IOError, httplib.HTTPException, ValueError):
 					if self.verbose:
 						self.say('Long poll exception:')
 						traceback.print_exc()
