@@ -15,7 +15,7 @@ from Queue import Queue, Empty
 from struct import pack, unpack
 from threading import Thread, RLock
 
-VERSION = '201103.beta'
+VERSION = '201103.beta1'
 
 USER_AGENT = 'poclbm/' + VERSION
 
@@ -115,11 +115,11 @@ class BitcoinMiner():
 		defines += (' -DOUTPUT_MASK=' + str(OUTPUT_SIZE - 1))
 
 		self.context = cl.Context([device], None, None)
-		self.rate = float(rate)
+		self.rate = max(float(rate), 0.1)
 		self.askrate = max(int(askrate), 1)
 		self.askrate = min(self.askrate, 10)
 		self.worksize = int(worksize)
-		self.frames = max(frames, 1)
+		self.frames = max(int(frames), 3)
 		self.verbose = verbose
 		self.longPollActive = self.update = self.stop = False
 		self.lock = RLock()
@@ -302,17 +302,14 @@ class BitcoinMiner():
 				traceback.print_exc()
 
 	def miningThread(self):
-		frame = float(1)/float(self.frames)
-		window = frame/30
-		upper = frame + window
-		lower = frame - window
-
+		frame = 1.0 / self.frames
 		unit = self.worksize * 256
-		globalThreads = unit
+		globalThreads = unit * 10
 		
 		queue = cl.CommandQueue(self.context)
 
-		base = lastRate = threadsRun = 0
+		lastRatedSmall = lastRated = time()
+		base = lastHashRate = threadsRunSmall = threadsRun = 0
 		f = np.zeros(8, np.uint32)
 		output = np.zeros(OUTPUT_SIZE+1, np.uint32)
 		output_buf = cl.Buffer(self.context, cl.mem_flags.WRITE_ONLY | cl.mem_flags.USE_HOST_PTR, hostbuf=output)
@@ -345,7 +342,6 @@ class BitcoinMiner():
 					f[6] = uint32(state[4] + (rotr(state2[1], 6) ^ rotr(state2[1], 11) ^ rotr(state2[1], 25)) + (state2[3] ^ (state2[1] & (state2[2] ^ state2[3]))) + 0xe9b5dba5)
 					f[7] = uint32((rotr(state2[5], 2) ^ rotr(state2[5], 13) ^ rotr(state2[5], 22)) + ((state2[5] & state2[6]) | (state2[7] & (state2[5] | state2[6]))))
 
-			kernelStart = time()
 			self.miner.search(	queue, (globalThreads, ), (self.worksize, ),
 								state[0], state[1], state[2], state[3], state[4], state[5], state[6], state[7],
 								state2[1], state2[2], state2[3], state2[5], state2[6], state2[7],
@@ -356,20 +352,29 @@ class BitcoinMiner():
 			cl.enqueue_read_buffer(queue, output_buf, output)
 
 			noncesLeft -= globalThreads
+			threadsRunSmall += globalThreads
 			threadsRun += globalThreads
 			base = uint32(base + globalThreads)
 
-			if (time() - lastRate > self.rate):
-				self.hashrate(int((threadsRun / (time() - lastRate)) / self.rateDivisor))
-				threadsRun = 0
-				lastRate = time()
+			now = time()
+			t = now - lastRatedSmall
+			if (t > 1):
+				rate = (threadsRunSmall / t) / self.rateDivisor
+				lastRatedSmall = now; threadsRunSmall = 0
+				r = lastHashRate / rate
+				if r < 0.9 or r > 1.1:
+					globalThreads = max(unit * int((rate * frame * self.rateDivisor) / unit), unit)
+					lastHashRate = rate
+			t = now - lastRated
+			if (t > self.rate):
+				self.hashrate(int((threadsRun / t) / self.rateDivisor))
+				lastRated = now; threadsRun = 0
 
-			queue.finish()
-			kernelTime = time() - kernelStart
-
-			if noncesLeft < (TIMEOUT / max(kernelTime, lower)) * globalThreads:
+			if noncesLeft < TIMEOUT * globalThreads * self.frames:
 				self.update = True
 				noncesLeft = 0xFFFFFFFFFFFF
+
+			queue.finish()
 
 			if output[OUTPUT_SIZE]:
 				result = {}
@@ -381,8 +386,3 @@ class BitcoinMiner():
 				self.resultQueue.put(result)
 				output.fill(0)
 				cl.enqueue_write_buffer(queue, output_buf, output)
-
-			if (kernelTime < lower):
-				globalThreads += unit
-			elif (kernelTime > upper and globalThreads > unit):
-				globalThreads -= unit
