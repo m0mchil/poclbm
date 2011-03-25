@@ -62,11 +62,11 @@ class RPCError(Exception): pass
 
 class BitcoinMiner():
 	def __init__(self, device, host, user, password, port=8332, frames=30, rate=1, askrate=5, worksize=-1, vectors=False, verbose=False):
-		(defines, self.rateDivisor, self.hashspace) = if_else(vectors, ('-DVECTORS', 500, 0x7FFFFFFF), ('', 1000, 0xFFFFFFFF))
-		defines += (' -DOUTPUT_SIZE=' + str(OUTPUT_SIZE))
-		defines += (' -DOUTPUT_MASK=' + str(OUTPUT_SIZE - 1))
+		(self.defines, self.rateDivisor, self.hashspace) = if_else(vectors, ('-DVECTORS', 500, 0x7FFFFFFF), ('', 1000, 0xFFFFFFFF))
+		self.defines += (' -DOUTPUT_SIZE=' + str(OUTPUT_SIZE))
+		self.defines += (' -DOUTPUT_MASK=' + str(OUTPUT_SIZE - 1))
 
-		self.context = cl.Context([device], None, None)
+		self.device = device
 		self.rate = max(float(rate), 0.1)
 		self.askrate = max(int(askrate), 1)
 		self.askrate = min(self.askrate, 10)
@@ -79,29 +79,6 @@ class BitcoinMiner():
 		self.outputLock = RLock()
 		self.lastWork = 0
 		self.lastBlock = self.updateTime = self.longPollURL = ''
-
-		if (device.extensions.find('cl_amd_media_ops') != -1):
-			defines += ' -DBITALIGN'
-
-		kernelFile = open('BitcoinMiner.cl', 'r')
-		kernel = kernelFile.read()
-		kernelFile.close()
-		m = md5(); m.update(''.join([device.platform.name, device.platform.version, device.name, defines, kernel]))
-		cacheName = '%s.elf' % m.hexdigest()
-		binary = None
-		try:
-			binary = open(cacheName, 'rb')
-			self.miner = cl.Program(self.context, [device], [binary.read()]).build(defines)
-		except (IOError, cl.LogicError):
-			self.miner = cl.Program(self.context, kernel).build(defines)
-			binaryW = open(cacheName, 'wb')
-			binaryW.write(self.miner.binaries[0])
-			binaryW.close()
-		finally:
-			if binary: binary.close()
-
-		if (self.worksize == -1):
-			self.worksize = self.miner.search.get_work_group_info(cl.kernel_work_group_info.WORK_GROUP_SIZE, self.context.devices[0])
 
 		self.workQueue = Queue()
 		self.resultQueue = Queue()
@@ -260,6 +237,7 @@ class BitcoinMiner():
 					pass
 
 	def miningThread(self):
+		self.loadKernel()
 		frame = 1.0 / self.frames
 		unit = self.worksize * 256
 		globalThreads = unit * 10
@@ -342,3 +320,28 @@ class BitcoinMiner():
 				data[1] = bytereverse(bytereverse(data[1]) + 1)
 				state2 = partial(state, data, f)
 				lastNTime = now
+
+	def loadKernel(self):
+		self.context = cl.Context([self.device], None, None)
+		if (self.device.extensions.find('cl_amd_media_ops') != -1):
+			self.defines += ' -DBITALIGN'
+
+		kernelFile = open('BitcoinMiner.cl', 'r')
+		kernel = kernelFile.read()
+		kernelFile.close()
+		m = md5(); m.update(''.join([self.device.platform.name, self.device.platform.version, self.device.name, self.defines, kernel]))
+		cacheName = '%s.elf' % m.hexdigest()
+		binary = None
+		try:
+			binary = open(cacheName, 'rb')
+			self.miner = cl.Program(self.context, [self.device], [binary.read()]).build(self.defines)
+		except (IOError, cl.LogicError):
+			self.miner = cl.Program(self.context, kernel).build(self.defines)
+			binaryW = open(cacheName, 'wb')
+			binaryW.write(self.miner.binaries[0])
+			binaryW.close()
+		finally:
+			if binary: binary.close()
+
+		if (self.worksize == -1):
+			self.worksize = self.miner.search.get_work_group_info(cl.kernel_work_group_info.WORK_GROUP_SIZE, self.device)
