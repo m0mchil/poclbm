@@ -16,11 +16,12 @@ from Queue import Queue, Empty
 from struct import pack, unpack
 from threading import Thread, RLock
 
-# Socket wrapper to enable socket.TCP_NODELAY
+# Socket wrapper to enable socket.TCP_NODELAY and KEEPALIVE
 realsocket = socket.socket
 def socketwrap(family=socket.AF_INET, type=socket.SOCK_STREAM, proto=0):
 	sockobj = realsocket(family, type, proto)
 	sockobj.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+	sockobj.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
 	return sockobj
 socket.socket = socketwrap
 
@@ -138,7 +139,7 @@ class BitcoinMiner():
 
 				with self.lock:
 					if not self.resultQueue.empty():
-						self.sendResult(self.resultQueue.get(False))					
+						self.sendResult(self.resultQueue.get(False))
 				sleep(1)
 			except Exception:
 				self.sayLine("Unexpected error:")
