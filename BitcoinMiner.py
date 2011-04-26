@@ -13,7 +13,7 @@ from json import dumps, loads
 from datetime import datetime
 from urlparse import urlsplit
 from Queue import Queue, Empty
-from struct import pack, unpack
+from struct import pack, unpack, error
 from threading import Thread, RLock
 
 # Socket wrapper to enable socket.TCP_NODELAY and KEEPALIVE
@@ -57,6 +57,36 @@ def if_else(condition, trueVal, falseVal):
 		return trueVal
 	else:
 		return falseVal
+
+def patch(data):
+	pos = data.find('\x7fELF', 1)
+	if pos != -1 and data.find('\x7fELF', pos+1) == -1:
+		data2 = data[pos:]
+		try:
+			(id, a, b, c, d, e, f, offset, g, h, i, j, entrySize, count, index) = unpack('QQHHIIIIIHHHHHH', data2[:52])
+			if id == 0x64010101464c457f and offset != 0:
+				(a, b, c, d, nameTableOffset, size, e, f, g, h) = unpack('IIIIIIIIII', data2[offset+index * entrySize : offset+(index+1) * entrySize])
+				header = data2[offset : offset+count * entrySize]
+				firstText = True
+				for i in xrange(count):
+					entry = header[i * entrySize : (i+1) * entrySize]
+					(nameIndex, a, b, c, offset, size, d, e, f, g) = unpack('IIIIIIIIII', entry)
+					nameOffset = nameTableOffset + nameIndex
+					name = data2[nameOffset : data2.find('\x00', nameOffset)]
+					if name == '.text':
+						if firstText: firstText = False
+						else:
+							data2 = data2[offset : offset + size]
+							patched = ''
+							for i in xrange(len(data2) / 8):
+								instruction, = unpack('Q', data2[i * 8 : i * 8 + 8])
+								if (instruction&0x9003f00002001000) == 0x0001a00000000000:
+									instruction ^= (0x0001a00000000000 ^ 0x0000c00000000000)
+								patched += pack('Q', instruction)
+							return ''.join([data[:pos+offset], patched, data[pos + offset + size:]])
+		except error:
+			pass
+	return data
 
 class NotAuthorized(Exception): pass
 class RPCError(Exception): pass
@@ -271,7 +301,6 @@ class BitcoinMiner():
 			self.miner.search(	queue, (globalThreads, ), (self.worksize, ),
 								state[0], state[1], state[2], state[3], state[4], state[5], state[6], state[7],
 								state2[1], state2[2], state2[3], state2[5], state2[6], state2[7],
-								pack('I', uint32(0xFFFF0000)), pack('I', 0),
 								pack('I', base),
 								f[0], f[1], f[2], f[3], f[4], f[5], f[6], f[7],
 								output_buf)
@@ -338,6 +367,9 @@ class BitcoinMiner():
 			self.miner = cl.Program(self.context, [self.device], [binary.read()]).build(self.defines)
 		except (IOError, cl.LogicError):
 			self.miner = cl.Program(self.context, kernel).build(self.defines)
+			if (self.defines.find('-DBITALIGN') != -1):
+				patchedBinary = patch(self.miner.binaries[0])
+				self.miner = cl.Program(self.context, [self.device], [patchedBinary]).build(self.defines)
 			binaryW = open(cacheName, 'wb')
 			binaryW.write(self.miner.binaries[0])
 			binaryW.close()
