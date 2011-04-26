@@ -153,7 +153,7 @@ class BitcoinMiner():
 				if self.lastBlock != work['data'][48:56]:
 					self.lastBlock = work['data'][48:56]
 					while not self.resultQueue.empty():
-						result = self.resultQueue.get(False)
+						self.resultQueue.get(False)
 
 	def sendResult(self, result):
 		for i in xrange(OUTPUT_SIZE):
@@ -235,7 +235,8 @@ class BitcoinMiner():
 				except RPCError as e:
 					self.sayLine('long poll: %s', e)
 				except (IOError, httplib.HTTPException, ValueError):
-					pass
+					self.sayLine('long poll exception:')
+					traceback.print_exc()
 
 	def miningThread(self):
 		self.loadKernel()
@@ -312,8 +313,7 @@ class BitcoinMiner():
 				result['state'] = np.array(state)
 				result['target'] = target
 				result['output'] = np.array(output)
-				with self.lock:
-					self.resultQueue.put(result)
+				self.resultQueue.put(result)
 				output.fill(0)
 				cl.enqueue_write_buffer(queue, output_buf, output)
 
