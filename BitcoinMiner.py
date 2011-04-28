@@ -26,7 +26,7 @@ def socketwrap(family=socket.AF_INET, type=socket.SOCK_STREAM, proto=0):
 socket.socket = socketwrap
 
 
-VERSION = '201103.beta3'
+VERSION = '2011.beta4'
 
 USER_AGENT = 'poclbm/' + VERSION
 
