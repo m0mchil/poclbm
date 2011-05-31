@@ -2,10 +2,21 @@ This is a fork of m0mchil's poclbm: https://github.com/m0mchil/poclbm
 
 Changes:
 
-*   Fallback mining pool when main pool goes down
-    The easiest way to see this code in action is to use a false port:
+*   ### Fallback mining pool when main pool goes down.
+
+    You can use a false port to test this functionality:
   
         ./poclbm.py -u foo --pass bar -o miningpool.com -p 8335 -d 1 -v -b foo:bar@miningpool.com:8332
+
+    Port 8335 is an invalid port in this example so the connection will fail and use the mining pool given using -b.
+
+        ./poclbm.py --help
+          Usage: poclbm.py [options]
+
+          Options:
+            -b BACKUP, --backup=BACKUP
+                                  fallback server: user:pass@host:port
+
 
 
 Donate: 1BdWJEUCkm6on231iX2ThXZHXZDfQny69R
