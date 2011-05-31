@@ -1,0 +1,7 @@
+Fork additions:
+  * Fallback mining pool when main pool goes down
+    The easiest way to see this code in action is to use a false port:
+  
+    ./poclbm.py -u foo --pass bar -o miningpool.com -p 8335 -d 1 -v -b foo:bar@miningpool.com:8332
+
+Donate: 1BdWJEUCkm6on231iX2ThXZHXZDfQny69R
