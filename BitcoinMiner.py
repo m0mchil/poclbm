@@ -114,28 +114,32 @@ class BitcoinMiner():
 		self.workQueue = Queue()
 		self.resultQueue = Queue()
 
+		self.backup_pool_index = 0
+		self.errors = 0
+		self.tolerance = tolerance
+
+		host = '%s:%s' % (host.replace('http://', ''), port)
+		self.primary = (user, password, host)
+		self.setpool(self.primary)
+
+		self.postdata = {"method": 'getwork', 'id': 'json'}
+		self.connection = None
+
+		if not backup:
+			backup = ""
+
 		self.backup = []
 		for pool in backup.split(","):
 			user, temp = pool.split(":", 1)
 			pwd, host = temp.split("@")
 			self.backup.append((user, pwd, host))
 
-		self.backup_pool_index = 0
-		self.errors = 0
-		self.tolerance = tolerance
-		self.host = '%s:%s' % (host.replace('http://', ''), port)
-
-		self.postdata = {"method": 'getwork', 'id': 'json'}
-		self.headers = {"User-Agent": USER_AGENT, "Authorization": 'Basic ' + b64encode('%s:%s' % (user, password))}
-		self.connection = None
-		self.primary = (user, password, self.host)
-
 	def say(self, format, args=()):
 		with self.outputLock:
 			if self.verbose:
 				print '%s,' % datetime.now().strftime(TIME_FORMAT), format % args
 			else:
-				sys.stdout.write('\r                                                            \r%s' % (format % args))
+				sys.stdout.write('\r%s\r%s' % (" "*80, format % args))
 			sys.stdout.flush()
 
 	def sayLine(self, format, args=()):
@@ -225,13 +229,24 @@ class BitcoinMiner():
 			self.say('%s', e)
 		except (IOError, httplib.HTTPException, ValueError):
 			self.say('Problems communicating with bitcoin RPC %s %s' % (self.errors, self.tolerance))
-			self.errors = self.errors + 1
-			if self.backup and self.errors > self.tolerance+1:
-				user, pwd, self.host = self.backup[self.backup_pool_index]
-				self.sayLine('Switching to backup %s @ %s' % (user, self.host))
-				self.headers = {"User-Agent": USER_AGENT, "Authorization": 'Basic ' + b64encode('%s:%s' % (user, pwd))}
-				self.connection = None
+			self.errors += 1
+			if self.errors > self.tolerance+1:
 				self.errors = 0
+				if self.backup_pool_index >= len(self.backup):
+					self.sayLine("No more backup pools left. Using primary and starting over.")
+					pool = self.primary
+					self.backup_pool_index = 0
+				else:
+					pool = self.backup[self.backup_pool_index]
+					self.backup_pool_index += 1
+				self.setpool(pool)
+
+	def setpool(self, pool):
+		user, pwd, host = pool
+		self.host = host
+		self.sayLine('Setting pool %s @ %s ' % (user, host))
+		self.headers = {"User-Agent": USER_AGENT, "Authorization": 'Basic ' + b64encode('%s:%s' % (user, pwd))}
+		self.connection = None
 
 	def request(self, connection, url, headers, data=None):
 		result = response = None
@@ -245,7 +260,7 @@ class BitcoinMiner():
 				response.read()
 				url = response.getheader('Location', '')
 				if r == 0 or url == '': raise HTTPException('Too much or bad redirects')
-				connection.request('GET', url, headers=self.headers)
+				connection.request('GET', url, headers=headers)
 				response = connection.getresponse();
 				r -= 1
 			self.longPollURL = response.getheader('X-Long-Polling', '')
