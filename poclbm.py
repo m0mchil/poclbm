@@ -6,6 +6,7 @@ from BitcoinMiner import *
 from optparse import OptionParser
 
 parser = OptionParser(version=USER_AGENT)
+parser.add_option('-b', '--backup',   dest='backup',   default=None,        help='fallback server: user:pass@host:port')
 parser.add_option('-u', '--user',     dest='user',     default='bitcoin',   help='user name')
 parser.add_option('--pass',	          dest='password', default='password',  help='password')
 parser.add_option('-o', '--host',     dest='host',     default='127.0.0.1', help='RPC host (without \'http://\')')
@@ -46,6 +47,7 @@ if (options.device == -1 or options.device >= len(devices)):
 miner = None
 try:
 	miner = BitcoinMiner(	devices[options.device],
+							options.backup,
 							options.host,
 							options.user,
 							options.password,

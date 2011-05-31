@@ -92,7 +92,7 @@ class NotAuthorized(Exception): pass
 class RPCError(Exception): pass
 
 class BitcoinMiner():
-	def __init__(self, device, host, user, password, port=8332, frames=30, rate=1, askrate=5, worksize=-1, vectors=False, verbose=False):
+	def __init__(self, device, backup, host, user, password, port=8332, frames=30, rate=1, askrate=5, worksize=-1, vectors=False, verbose=False):
 		(self.defines, self.rateDivisor, self.hashspace) = if_else(vectors, ('-DVECTORS', 500, 0x7FFFFFFF), ('', 1000, 0xFFFFFFFF))
 		self.defines += (' -DOUTPUT_SIZE=' + str(OUTPUT_SIZE))
 		self.defines += (' -DOUTPUT_MASK=' + str(OUTPUT_SIZE - 1))
@@ -114,6 +114,7 @@ class BitcoinMiner():
 		self.workQueue = Queue()
 		self.resultQueue = Queue()
 
+		self.backup = backup
 		self.host = '%s:%s' % (host.replace('http://', ''), port)
 		self.postdata = {"method": 'getwork', 'id': 'json'}
 		self.headers = {"User-Agent": USER_AGENT, "Authorization": 'Basic ' + b64encode('%s:%s' % (user, password))}
@@ -213,6 +214,12 @@ class BitcoinMiner():
 			self.say('%s', e)
 		except (IOError, httplib.HTTPException, ValueError):
 			self.say('Problems communicating with bitcoin RPC')
+			if self.backup:
+				login, self.host = self.backup.split("@")
+				user, pwd = login.split(":")
+				self.say('Switching to backup %s@%s' % (user, self.host))
+				self.headers = {"User-Agent": USER_AGENT, "Authorization": 'Basic ' + b64encode('%s:%s' % (user, pwd))}
+				self.connection = None
 
 	def request(self, connection, url, headers, data=None):
 		result = response = None
