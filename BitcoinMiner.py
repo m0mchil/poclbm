@@ -92,7 +92,7 @@ class NotAuthorized(Exception): pass
 class RPCError(Exception): pass
 
 class BitcoinMiner():
-	def __init__(self, device, backup, host, user, password, port=8332, frames=30, rate=1, askrate=5, worksize=-1, vectors=False, verbose=False):
+	def __init__(self, device, backup, tolerance, host, user, password, port=8332, frames=30, rate=1, askrate=5, worksize=-1, vectors=False, verbose=False):
 		(self.defines, self.rateDivisor, self.hashspace) = if_else(vectors, ('-DVECTORS', 500, 0x7FFFFFFF), ('', 1000, 0xFFFFFFFF))
 		self.defines += (' -DOUTPUT_SIZE=' + str(OUTPUT_SIZE))
 		self.defines += (' -DOUTPUT_MASK=' + str(OUTPUT_SIZE - 1))
@@ -114,11 +114,21 @@ class BitcoinMiner():
 		self.workQueue = Queue()
 		self.resultQueue = Queue()
 
-		self.backup = backup
+		self.backup = []
+		for pool in backup.split(","):
+			user, temp = pool.split(":", 1)
+			pwd, host = temp.split("@")
+			self.backup.append((user, pwd, host))
+
+		self.backup_pool_index = 0
+		self.errors = 0
+		self.tolerance = tolerance
 		self.host = '%s:%s' % (host.replace('http://', ''), port)
+
 		self.postdata = {"method": 'getwork', 'id': 'json'}
 		self.headers = {"User-Agent": USER_AGENT, "Authorization": 'Basic ' + b64encode('%s:%s' % (user, password))}
 		self.connection = None
+		self.primary = (user, password, self.host)
 
 	def say(self, format, args=()):
 		with self.outputLock:
@@ -207,19 +217,21 @@ class BitcoinMiner():
 				self.connection = httplib.HTTPConnection(self.host, strict=True, timeout=TIMEOUT)
 			self.postdata['params'] = if_else(data, [data], [])
 			(self.connection, result) = self.request(self.connection, '/', self.headers, dumps(self.postdata))
+			self.errors = 0
 			return result['result']
 		except NotAuthorized:
 			self.failure('Wrong username or password')
 		except RPCError as e:
 			self.say('%s', e)
 		except (IOError, httplib.HTTPException, ValueError):
-			self.say('Problems communicating with bitcoin RPC')
-			if self.backup:
-				login, self.host = self.backup.split("@")
-				user, pwd = login.split(":")
-				self.say('Switching to backup %s@%s' % (user, self.host))
+			self.say('Problems communicating with bitcoin RPC %s %s' % (self.errors, self.tolerance))
+			self.errors = self.errors + 1
+			if self.backup and self.errors > self.tolerance+1:
+				user, pwd, self.host = self.backup[self.backup_pool_index]
+				self.sayLine('Switching to backup %s @ %s' % (user, self.host))
 				self.headers = {"User-Agent": USER_AGENT, "Authorization": 'Basic ' + b64encode('%s:%s' % (user, pwd))}
 				self.connection = None
+				self.errors = 0
 
 	def request(self, connection, url, headers, data=None):
 		result = response = None
