@@ -2,7 +2,7 @@ This is a fork of m0mchil's poclbm: https://github.com/m0mchil/poclbm
 
 Changes:
 
-*   ### Fallback mining pool when main pool goes down.
+*   __Fallback mining pool when main pool goes down.__
 
     You can use a false port to test this functionality:
   
