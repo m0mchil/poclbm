@@ -1,0 +1,5 @@
+Usage:
+
+./poclbm.py -u foo --pass bar -o miningpool.com -p 8335 -d 1 -v -b foo:bar@miningpool.com:8332
+
+This example shows how it works by using a false port, which causes the code to switch to the backup
