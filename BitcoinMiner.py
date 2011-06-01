@@ -117,6 +117,7 @@ class BitcoinMiner():
 		self.backup_pool_index = 0
 		self.errors = 0
 		self.tolerance = tolerance
+		self.pool = None
 
 		host = '%s:%s' % (host.replace('http://', ''), port)
 		self.primary = (user, password, host)
@@ -139,7 +140,7 @@ class BitcoinMiner():
 			if self.verbose:
 				print '%s,' % datetime.now().strftime(TIME_FORMAT), format % args
 			else:
-				sys.stdout.write('\r%s\r%s' % (" "*80, format % args))
+				sys.stdout.write('\r%s\r%s%s' % (" "*80, (self.pool[2]+" " if self.pool else ""), format % args))
 			sys.stdout.flush()
 
 	def sayLine(self, format, args=()):
@@ -228,7 +229,7 @@ class BitcoinMiner():
 		except RPCError as e:
 			self.say('%s', e)
 		except (IOError, httplib.HTTPException, ValueError):
-			self.say('Problems communicating with bitcoin RPC %s %s' % (self.errors, self.tolerance))
+			self.say('Problems communicating with bitcoin RPC %s %s', (self.errors, self.tolerance))
 			self.errors += 1
 			if self.errors > self.tolerance+1:
 				self.errors = 0
@@ -242,9 +243,10 @@ class BitcoinMiner():
 				self.setpool(pool)
 
 	def setpool(self, pool):
+		self.pool = pool
 		user, pwd, host = pool
 		self.host = host
-		self.sayLine('Setting pool %s @ %s ' % (user, host))
+		self.sayLine('Setting pool %s @ %s', (user, host))
 		self.headers = {"User-Agent": USER_AGENT, "Authorization": 'Basic ' + b64encode('%s:%s' % (user, pwd))}
 		self.connection = None
 
