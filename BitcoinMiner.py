@@ -111,6 +111,9 @@ class BitcoinMiner():
 		self.lastWork = 0
 		self.lastBlock = self.updateTime = self.longPollURL = ''
 
+		self.shareCount = [0, 0]
+		self.getworkCount = 0
+
 		self.workQueue = Queue()
 		self.resultQueue = Queue()
 
@@ -199,11 +202,14 @@ class BitcoinMiner():
 						accepted = self.getwork(d)
 						if accepted != None:
 							self.blockFound(pack('I', long(h[6])).encode('hex'), accepted)
+							self.shareCount[if_else(accepted, 1, 0)] += 1
 
 	def getwork(self, data=None):
 		try:
 			if not self.connection:
 				self.connection = httplib.HTTPConnection(self.host, strict=True, timeout=TIMEOUT)
+			if data is None:
+				self.getworkCount += 1
 			self.postdata['params'] = if_else(data, [data], [])
 			(self.connection, result) = self.request(self.connection, '/', self.headers, dumps(self.postdata))
 			return result['result']
