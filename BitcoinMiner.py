@@ -8,6 +8,7 @@ import pyopencl as cl
 from sha256 import *
 from hashlib import md5
 from base64 import b64encode
+from decimal import Decimal
 from time import sleep, time
 from json import dumps, loads
 from datetime import datetime
@@ -127,7 +128,7 @@ class BitcoinMiner():
 			if self.verbose:
 				print '%s,' % datetime.now().strftime(TIME_FORMAT), format % args
 			else:
-				sys.stdout.write('\r                                                            \r%s' % (format % args))
+				sys.stdout.write('\r%s\r%s' % (' ' * 79, format % args))
 			sys.stdout.flush()
 
 	def sayLine(self, format, args=()):
@@ -138,8 +139,15 @@ class BitcoinMiner():
 	def exit(self):
 		self.stop = True
 
-	def hashrate(self, rate):
-		self.say('%s khash/s', rate)
+	def sayStatus(self, rate, estRate):
+		rate = Decimal(rate) / 1000
+		estRate = Decimal(estRate) / 1000
+		totShares = self.shareCount[1] + self.shareCount[0]
+		totSharesE = max(totShares, totShares, 1)
+		eff = 0
+		if (self.getworkCount):
+			eff = self.shareCount[1] * 100 / self.getworkCount
+		self.say('[%.03f MH/s (~%d MH/s)] [Rej: %d/%d (%d%%)] [GW: %d (Eff: %d%%)]', (rate, round(estRate), self.shareCount[0], totShares, self.shareCount[0] * 100 / totSharesE, self.getworkCount, eff))
 
 	def failure(self, message):
 		print '\n%s' % message
@@ -282,11 +290,13 @@ class BitcoinMiner():
 		
 		queue = cl.CommandQueue(self.context)
 
-		lastRatedPace = lastRated = lastNTime = time()
-		base = lastHashRate = threadsRunPace = threadsRun = 0
+		startTime = lastRatedPace = lastRated = lastNTime = time()
+		accepted = base = lastHashRate = threadsRunPace = threadsRun = 0
+		acceptHist = []
 		f = np.zeros(8, np.uint32)
 		output = np.zeros(OUTPUT_SIZE+1, np.uint32)
 		output_buf = cl.Buffer(self.context, cl.mem_flags.WRITE_ONLY | cl.mem_flags.USE_HOST_PTR, hostbuf=output)
+		timedelta = 900
 
 		work = None
 		while True:
@@ -328,7 +338,20 @@ class BitcoinMiner():
 					lastHashRate = rate
 			t = now - lastRated
 			if (t > self.rate):
-				self.hashrate(int((threadsRun / t) / self.rateDivisor))
+				rate = int((threadsRun / t) / self.rateDivisor)
+
+				if (len(acceptHist)):
+					LAH = acceptHist.pop()
+					if LAH[1] != self.shareCount[1]:
+						acceptHist.append(LAH)
+				acceptHist.append( (now, self.shareCount[1]) )
+				while (acceptHist[0][0] < now - timedelta):
+					acceptHist.pop(0)
+				newAccept = self.shareCount[1] - acceptHist[0][1]
+				# FIXME: this next line assumes diff 1: calculate by real target
+				estRate = Decimal(newAccept) * (2**32) / min(int(now - startTime), timedelta) / 1000
+
+				self.sayStatus(rate, estRate)
 				lastRated = now; threadsRun = 0
 
 			if self.updateTime == '':
