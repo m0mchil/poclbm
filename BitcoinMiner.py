@@ -92,7 +92,8 @@ class NotAuthorized(Exception): pass
 class RPCError(Exception): pass
 
 class BitcoinMiner():
-	def __init__(self, device, host, user, password, port=8332, frames=30, rate=1, askrate=5, worksize=-1, vectors=False, verbose=False):
+	def __init__(self, device, host, user, password, port=8332, frames=30, rate=1, askrate=5, worksize=-1, vectors=False, verbose=False,
+	    frameSleep=0):
 		(self.defines, self.rateDivisor, self.hashspace) = if_else(vectors, ('-DVECTORS', 500, 0x7FFFFFFF), ('', 1000, 0xFFFFFFFF))
 		self.defines += (' -DOUTPUT_SIZE=' + str(OUTPUT_SIZE))
 		self.defines += (' -DOUTPUT_MASK=' + str(OUTPUT_SIZE - 1))
@@ -104,6 +105,7 @@ class BitcoinMiner():
 		self.worksize = int(worksize)
 		self.frames = max(int(frames), 3)
 		self.verbose = verbose
+		self.frameSleep = frameSleep
 		self.longPollActive = self.stop = False
 		self.update = True
 		self.lock = RLock()
@@ -284,6 +286,7 @@ class BitcoinMiner():
 
 		work = None
 		while True:
+		        sleep(self.frameSleep)
 			if self.stop: return
 			if (not work) or (not self.workQueue.empty()):
 				try:
