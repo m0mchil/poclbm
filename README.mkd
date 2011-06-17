@@ -20,12 +20,14 @@ Options:
   -w WORKSIZE, --worksize=WORKSIZE
                         work group size, default is maximum returned by opencl
   -v, --vectors         use vectors
+  -s FRAMESLEEP, --sleep=FRAMESLEEP
+                        sleep per frame in seconds, default 0
   --backup=BACKUP       use fallback pools:
                         user:pass@host:port[,user:pass@host:port]
   --tolerance=TOLERANCE
                         use fallback pool only after N consecutive connection
-                        errors (default 2)
+                        errors, default 2
   --failback=FAILBACK   attempt to fail back to the primary pool every N
-                        getworks (default 2)
+                        getworks, default 2
   --verbose             verbose output, suitable for redirection to log file
   --platform=PLATFORM   use platform by id
