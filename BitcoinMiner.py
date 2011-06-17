@@ -126,17 +126,19 @@ class BitcoinMiner():
 		self.primary = (user, password, host)
 		self.setpool(self.primary)
 
-		self.postdata = {"method": 'getwork', 'id': 'json'}
+		self.postdata = {'method': 'getwork', 'id': 'json'}
 		self.connection = None
 
-		if not backup:
-			backup = ""
-
 		self.backup = []
-		for pool in backup.split(","):
-			user, temp = pool.split(":", 1)
-			pwd, host = temp.split("@")
-			self.backup.append((user, pwd, host))
+		if backup:
+			for pool in backup.split(','):
+				try:
+					user, temp = pool.split(':', 1)
+					pwd, host = temp.split('@')
+					self.backup.append((user, pwd, host))
+				except ValueError:
+					self.sayLine('Ignored invalid backup pool: %s', pool)
+					continue
 
 	def say(self, format, args=()):
 		with self.outputLock:
@@ -144,7 +146,7 @@ class BitcoinMiner():
 			if self.verbose:
 				print '%s,' % datetime.now().strftime(TIME_FORMAT), p
 			else:
-				pool = self.pool[2]+" " if self.pool else ""
+				pool = self.pool[2]+' ' if self.pool else ''
 				sys.stdout.write('\r%s\r%s%s' % (" "*len(p), pool, p))
 			sys.stdout.flush()
 
@@ -294,8 +296,7 @@ class BitcoinMiner():
 			if result['error']:	raise RPCError(result['error']['message'])
 			return (connection, result)
 		finally:
-			connectionHeader = response.getheader('connection', '')
-			if not result or not response or (response.version == 10 and connectionHeader != 'keep-alive') or connectionHeader == 'close':
+			if not result or not response or (response.version == 10 and response.getheader('connection', '') != 'keep-alive') or response.getheader('connection', '') == 'close':
 				connection.close()
 				connection = None
 
