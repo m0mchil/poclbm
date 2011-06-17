@@ -325,14 +325,6 @@ class BitcoinMiner():
 				self.hashrate(int((threadsRun / t) / self.rateDivisor))
 				lastRated = now; threadsRun = 0
 
-			if self.updateTime == '':
-				if noncesLeft < TIMEOUT * globalThreads * self.frames:
-					self.update = True
-					noncesLeft += 0xFFFFFFFFFFFF
-				elif 0xFFFFFFFFFFF < noncesLeft < 0xFFFFFFFFFFFF:
-					self.sayLine('warning: job finished, miner is idle')
-					work = None
-
 			queue.finish()
 
 			if output[OUTPUT_SIZE]:
@@ -346,7 +338,14 @@ class BitcoinMiner():
 				output.fill(0)
 				cl.enqueue_write_buffer(queue, output_buf, output)
 
-			if self.updateTime != '' and now - lastNTime > 1:
+			if self.updateTime == '':
+				if noncesLeft < (TIMEOUT+1) * globalThreads * self.frames:
+					self.update = True
+					noncesLeft += 0xFFFFFFFFFFFF
+				elif 0xFFFFFFFFFFF < noncesLeft < 0xFFFFFFFFFFFF:
+					self.sayLine('warning: job finished, miner is idle')
+					work = None
+			elif now - lastNTime > 1:
 				data[1] = bytereverse(bytereverse(data[1]) + 1)
 				state2 = partial(state, data, f)
 				lastNTime = now
