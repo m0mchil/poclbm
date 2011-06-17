@@ -235,7 +235,8 @@ class BitcoinMiner():
 			if result['error']:	raise RPCError(result['error']['message'])
 			return (connection, result)
 		finally:
-			if not result or not response or response.getheader('connection', '') != 'keep-alive':
+			connectionHeader = response.getheader('connection', '')
+			if not result or not response or (response.version == 10 and connectionHeader != 'keep-alive') or connectionHeader == 'close':
 				connection.close()
 				connection = None
 
