@@ -1,0 +1,35 @@
+This is a fork of m0mchil's poclbm: https://github.com/m0mchil/poclbm
+
+Changes:
+
+*   __Fallback mining pool(s) when primary pool stops working.__
+
+    You can use a false port to test this functionality:
+  
+        ./poclbm.py -u foo --pass bar -o miningpool.com -p 8335 -d 1 -v --backup foo:bar@miningpool.com:8332,foo:bar@miningpool2.com:8332 --tolerance 10 --failback 1
+
+    Port 8335 is an invalid port in this example so the connection will fail and use the mining pool(s) sequentially given using --backup. 
+
+    Multiple backup pools can be specified delimited by commas.
+    
+    --tolerance allows you to control how many failed, consecutive work requests are necessary before switching to the next pool.
+
+    When there are no more backup pools left, the code tries the primary pool again and resets the backup pool index, starting the cycle over again.
+
+    Attempt to reconnect to the primary pool every --failback getwork requests. If set to 0, fail back is disabled.
+
+        ./poclbm.py --help
+          Usage: poclbm.py [options]
+
+          Options:
+            --backup=BACKUP       use fallback pools:
+                                  user:pass@host:port[,user:pass@host:port,...]
+            --tolerance=TOLERANCE use fallback pool only after N consecutive connection
+                                  errors
+            --failback=FAILBACK   attempt to fail back to the primary pool every N
+                                  getworks (default 0, dont failback, recommended: 1)
+
+
+
+Donate: 1BdWJEUCkm6on231iX2ThXZHXZDfQny69R
+-

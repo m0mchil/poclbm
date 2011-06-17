@@ -92,7 +92,7 @@ class NotAuthorized(Exception): pass
 class RPCError(Exception): pass
 
 class BitcoinMiner():
-	def __init__(self, device, host, user, password, port=8332, frames=30, rate=1, askrate=5, worksize=-1, vectors=False, verbose=False):
+	def __init__(self, device, backup, tolerance, failback, host, user, password, port=8332, frames=30, rate=1, askrate=5, worksize=-1, vectors=False, verbose=False):
 		(self.defines, self.rateDivisor, self.hashspace) = if_else(vectors, ('-DVECTORS', 500, 0x7FFFFFFF), ('', 1000, 0xFFFFFFFF))
 		self.defines += (' -DOUTPUT_SIZE=' + str(OUTPUT_SIZE))
 		self.defines += (' -DOUTPUT_MASK=' + str(OUTPUT_SIZE - 1))
@@ -114,17 +114,38 @@ class BitcoinMiner():
 		self.workQueue = Queue()
 		self.resultQueue = Queue()
 
-		self.host = '%s:%s' % (host.replace('http://', ''), port)
+		self.backup_pool_index = 0
+		self.errors = 0
+		self.tolerance = tolerance
+		self.failback = failback
+		self.failback_getwork_count = 0
+		self.failback_attempt_count = 0
+		self.pool = None
+
+		host = '%s:%s' % (host.replace('http://', ''), port)
+		self.primary = (user, password, host)
+		self.setpool(self.primary)
+
 		self.postdata = {"method": 'getwork', 'id': 'json'}
-		self.headers = {"User-Agent": USER_AGENT, "Authorization": 'Basic ' + b64encode('%s:%s' % (user, password))}
 		self.connection = None
+
+		if not backup:
+			backup = ""
+
+		self.backup = []
+		for pool in backup.split(","):
+			user, temp = pool.split(":", 1)
+			pwd, host = temp.split("@")
+			self.backup.append((user, pwd, host))
 
 	def say(self, format, args=()):
 		with self.outputLock:
+			p = format % args
 			if self.verbose:
-				print '%s,' % datetime.now().strftime(TIME_FORMAT), format % args
+				print '%s,' % datetime.now().strftime(TIME_FORMAT), p
 			else:
-				sys.stdout.write('\r                                                            \r%s' % (format % args))
+				pool = self.pool[2]+" " if self.pool else ""
+				sys.stdout.write('\r%s\r%s%s' % (" "*len(p), pool, p))
 			sys.stdout.flush()
 
 	def sayLine(self, format, args=()):
@@ -201,18 +222,56 @@ class BitcoinMiner():
 							self.blockFound(pack('I', long(h[6])).encode('hex'), accepted)
 
 	def getwork(self, data=None):
+		save_pool = None
 		try:
+			if self.pool != self.primary and self.failback > 0:
+				if self.failback_getwork_count >= self.failback:
+					save_pool = self.pool
+					self.setpool(self.primary)
+					self.connection = None
+					self.sayLine("Attempting to fail back to primary pool")
+				self.failback_getwork_count += 1
 			if not self.connection:
 				self.connection = httplib.HTTPConnection(self.host, strict=True, timeout=TIMEOUT)
 			self.postdata['params'] = if_else(data, [data], [])
 			(self.connection, result) = self.request(self.connection, '/', self.headers, dumps(self.postdata))
+			self.errors = 0
+			if self.pool == self.primary:
+				self.backup_pool_index = 0
+				self.failback_getwork_count = 0
+				self.failback_attempt_count = 0
 			return result['result']
 		except NotAuthorized:
 			self.failure('Wrong username or password')
 		except RPCError as e:
 			self.say('%s', e)
 		except (IOError, httplib.HTTPException, ValueError):
-			self.say('Problems communicating with bitcoin RPC')
+			if save_pool:
+				self.failback_attempt_count += 1
+				self.setpool(save_pool)
+				self.sayLine('Still unable to reconnect to primary pool (attempt %s), failing over', self.failback_attempt_count)
+				self.failback_getwork_count = 0
+				return
+			self.say('Problems communicating with bitcoin RPC %s %s', (self.errors, self.tolerance))
+			self.errors += 1
+			if self.errors > self.tolerance+1:
+				self.errors = 0
+				if self.backup_pool_index >= len(self.backup):
+					self.sayLine("No more backup pools left. Using primary and starting over.")
+					pool = self.primary
+					self.backup_pool_index = 0
+				else:
+					pool = self.backup[self.backup_pool_index]
+					self.backup_pool_index += 1
+				self.setpool(pool)
+
+	def setpool(self, pool):
+		self.pool = pool
+		user, pwd, host = pool
+		self.host = host
+		self.sayLine('Setting pool %s @ %s', (user, host))
+		self.headers = {"User-Agent": USER_AGENT, "Authorization": 'Basic ' + b64encode('%s:%s' % (user, pwd))}
+		self.connection = None
 
 	def request(self, connection, url, headers, data=None):
 		result = response = None
@@ -226,7 +285,7 @@ class BitcoinMiner():
 				response.read()
 				url = response.getheader('Location', '')
 				if r == 0 or url == '': raise HTTPException('Too much or bad redirects')
-				connection.request('GET', url, headers=self.headers)
+				connection.request('GET', url, headers=headers)
 				response = connection.getresponse();
 				r -= 1
 			self.longPollURL = response.getheader('X-Long-Polling', '')
@@ -242,6 +301,7 @@ class BitcoinMiner():
 
 	def longPollThread(self):
 		connection = None
+		last_url = None
 		while True:
 			if self.stop: return
 			sleep(1)
@@ -254,13 +314,18 @@ class BitcoinMiner():
 					url = url[url.find(host)+len(host):]
 					if url == '': url = '/'
 				try:
+					if self.longPollURL != last_url:
+						self.sayLine("Using new LP URL %s", url)
+						connection = None
 					if not connection:
+						self.sayLine("LP connected to %s", host)
 						connection = httplib.HTTPConnection(host, timeout=LONG_POLL_TIMEOUT)
 					self.longPollActive = True
 					(connection, result) = self.request(connection, url, self.headers)
 					self.longPollActive = False
 					self.queueWork(result['result'])
 					self.sayLine('long poll: new block %s%s', (result['result']['data'][56:64], result['result']['data'][48:56]))
+					last_url = self.longPollURL
 				except NotAuthorized:
 					self.sayLine('long poll: Wrong username or password')
 				except RPCError as e:
