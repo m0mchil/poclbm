@@ -174,20 +174,21 @@ class BitcoinMiner():
 					update = self.update = (self.update or time() - self.lastWork > if_else(self.longPollActive, LONG_POLL_MAX_ASKRATE, self.askrate))
 				if update:
 					work = self.getwork()
-					with self.lock:
-						if self.update:
-							self.queueWork(work)
+					if self.update:
+						self.queueWork(work)
 
-				with self.lock:
-					retry = []
-					while not self.resultQueue.empty():
-						result = self.resultQueue.get(False)
-						if self.sendResult(result) is False:
-							retry.append(result)
-					if retry:
-						self.sayLine("Network error sending %d result%s (will retry)" % (len(retry), 's' if len(retry) != 1 else ''))
-						for result in retry:
-							self.resultQueue.put(result)
+				retry = []
+				while not self.resultQueue.empty():
+					result = self.resultQueue.get(False)
+					with self.lock:
+						rv = self.sendResult(result)
+					if rv is False:
+						retry.append(result)
+				if retry:
+					self.sayLine("Network error sending %d result%s (will retry)" % (len(retry), 's' if len(retry) != 1 else ''))
+					for result in retry:
+						self.resultQueue.put(result)
+
 				sleep(1)
 			except Exception:
 				self.sayLine("Unexpected error:")
