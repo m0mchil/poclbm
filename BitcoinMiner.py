@@ -185,7 +185,6 @@ class BitcoinMiner():
 					if rv is False:
 						retry.append(result)
 				if retry:
-					self.sayLine("Network error sending %d result%s (will retry)" % (len(retry), 's' if len(retry) != 1 else ''))
 					for result in retry:
 						self.resultQueue.put(result)
 
@@ -215,11 +214,13 @@ class BitcoinMiner():
 					if belowOrEquals(h[:7], result['target'][:7]):
 						d = result['work']['data']
 						d = ''.join([d[:136], pack('I', long(result['data'][1])).encode('hex'), d[144:152], pack('I', long(result['output'][i])).encode('hex'), d[160:]])
+						hashid = pack('I', long(h[6])).encode('hex')
 						accepted = self.getwork(d)
 						if accepted != None:
-							self.blockFound(pack('I', long(h[6])).encode('hex'), accepted)
+							self.blockFound(hashid, accepted)
 							self.shareCount[if_else(accepted, 1, 0)] += 1
 						else:
+							self.sayLine('%s, %s', (hashid, 'ERROR (will resend)'))
 							return False
 
 	def getwork(self, data=None):
