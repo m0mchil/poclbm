@@ -366,12 +366,13 @@ class BitcoinMiner():
 					state  = np.array(unpack('IIIIIIII',         work['midstate'].decode('hex')),   dtype=np.uint32)
 					target = np.array(unpack('IIIIIIII',         work['target'].decode('hex')),     dtype=np.uint32)
 					state2 = partial(state, data, f)
+					calculateF(state, data, f, state2)
 
 			self.miner.search(	queue, (globalThreads, ), (self.worksize, ),
 								state[0], state[1], state[2], state[3], state[4], state[5], state[6], state[7],
 								state2[1], state2[2], state2[3], state2[5], state2[6], state2[7],
 								pack('I', base),
-								f[0], f[1], f[2], f[3], f[4], f[5], f[6], f[7],
+								f[0], f[1], f[2], f[3], f[4],# f[5], f[6], f[7],
 								output_buf)
 			cl.enqueue_read_buffer(queue, output_buf, output)
 
@@ -417,14 +418,16 @@ class BitcoinMiner():
 			elif now - lastNTime > 1:
 				data[1] = bytereverse(bytereverse(data[1]) + 1)
 				state2 = partial(state, data, f)
+				calculateF(state, data, f, state2)
 				lastNTime = now
 
 	def loadKernel(self):
 		self.context = cl.Context([self.device], None, None)
 		if (self.device.extensions.find('cl_amd_media_ops') != -1):
 			self.defines += ' -DBITALIGN'
+			self.defines += ' -DBFI_INT'
 
-		kernelFile = open('BitcoinMiner.cl', 'r')
+		kernelFile = open('phatk.cl', 'r')
 		kernel = kernelFile.read()
 		kernelFile.close()
 		m = md5(); m.update(''.join([self.device.platform.name, self.device.platform.version, self.device.name, self.defines, kernel]))

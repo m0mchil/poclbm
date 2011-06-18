@@ -46,6 +46,28 @@ def partial(state, data, f):
 	f[7] = uint32((rotr(state2[5], 2) ^ rotr(state2[5], 13) ^ rotr(state2[5], 22)) + ((state2[5] & state2[6]) | (state2[7] & (state2[5] | state2[6]))))
 	return state2
 
+def calculateF(state, data, f, state2):
+        rot = lambda x,y: x>>y | x<<(32-y)
+        #W2
+        f[0] = np.uint32(data[2])
+
+        #W16
+        f[1] = np.uint32(data[0] + (rot(data[1], 7) ^ rot(data[1], 18) ^
+            (data[1] >> 3)))
+        #W17
+        f[2] = np.uint32(data[1] + (rot(data[2], 7) ^ rot(data[2], 18) ^
+            (data[2] >> 3)) + 0x01100000)
+
+        #2 parts of the first SHA round
+        f[3] = np.uint32(state[4] + (rot(state2[1], 6) ^
+            rot(state2[1], 11) ^ rot(state2[1], 25)) +
+            (state2[3] ^ (state2[1] & (state2[2] ^
+            state2[3]))) + 0xe9b5dba5)
+        f[4] = np.uint32((rot(state2[5], 2) ^
+            rot(state2[5], 13) ^ rot(state2[5], 22)) +
+            ((state2[5] & state2[6]) | (state2[7] &
+            (state2[5] | state2[6]))))
+
 def sha256(state, data):
 	digest = np.copy(state)
 	for i in xrange(64):
