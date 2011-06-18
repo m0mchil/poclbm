@@ -179,7 +179,7 @@ class BitcoinMiner():
 							self.queueWork(work)
 
 				with self.lock:
-					if not self.resultQueue.empty():
+					while not self.resultQueue.empty():
 						self.sendResult(self.resultQueue.get(False))
 				sleep(1)
 			except Exception:
