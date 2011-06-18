@@ -179,8 +179,15 @@ class BitcoinMiner():
 							self.queueWork(work)
 
 				with self.lock:
+					retry = []
 					while not self.resultQueue.empty():
-						self.sendResult(self.resultQueue.get(False))
+						result = self.resultQueue.get(False)
+						if self.sendResult(result) is False:
+							retry.append(result)
+					if retry:
+						self.sayLine("Network error sending %d result%s (will retry)" % (len(retry), 's' if len(retry) != 1 else ''))
+						for result in retry:
+							self.resultQueue.put(result)
 				sleep(1)
 			except Exception:
 				self.sayLine("Unexpected error:")
@@ -211,6 +218,8 @@ class BitcoinMiner():
 						if accepted != None:
 							self.blockFound(pack('I', long(h[6])).encode('hex'), accepted)
 							self.shareCount[if_else(accepted, 1, 0)] += 1
+						else:
+							return False
 
 	def getwork(self, data=None):
 		try:
