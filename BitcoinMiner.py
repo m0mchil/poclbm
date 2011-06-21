@@ -158,7 +158,7 @@ class BitcoinMiner():
 			self.sayLine('checking %s <= %s', (hash, target))
 
 	def blockFound(self, hash, accepted):
-		self.sayLine('%s, %s', (hash, if_else(accepted, 'accepted', 'invalid or stale')))
+		self.sayLine('%s, %s', (hash, if_else(accepted, 'accepted', 'rejected')))
 
 	def mine(self):
 		self.stop = False
