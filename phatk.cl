@@ -48,7 +48,7 @@ __constant uint H[8] = {
 	#define Ch(x, y, z) amd_bytealign(x, y, z)
 	
 	// Ma can also be implemented in terms of BFI_INT...
-	#define Ma(x, y, z) amd_bytealign((y), (x | z), (z & x))
+	#define Ma(x, y, z) amd_bytealign( (z^x), (y), (x) )
 #else
 	#define Ch(x, y, z) (z ^ (x & (y ^ z)))
 	#define Ma(x, y, z) ((x & z) | (y & (x | z)))
