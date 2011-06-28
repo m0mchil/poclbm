@@ -19,7 +19,7 @@ __constant uint K[64] = {
 #pragma OPENCL EXTENSION cl_amd_media_ops : enable
 #define rotr(x, y) amd_bitalign((u)x, (u)x, (u)y)
 #define Ch(x, y, z) amd_bytealign(x, y, z)	
-#define Ma(x, y, z) amd_bytealign((y), (x | z), (z & x))
+#define Ma(x, y, z) amd_bytealign( (z^x), (y), (x) )
 #else
 #define rotr(x, y) rotate((u)x, (u)(32-y))
 #define Ch(x, y, z) (z ^ (x & (y ^ z)))
