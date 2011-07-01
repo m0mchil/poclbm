@@ -93,19 +93,17 @@ class NotAuthorized(Exception): pass
 class RPCError(Exception): pass
 
 class BitcoinMiner():
-	def __init__(self, device, backup, tolerance, failback, host, user, password, port=8332, frames=30, rate=1, askrate=5, worksize=-1, vectors=False, verbose=False, frameSleep=0):
-		(self.defines, self.rateDivisor, self.hashspace) = if_else(vectors, ('-DVECTORS', 500, 0x7FFFFFFF), ('', 1000, 0xFFFFFFFF))
+	def __init__(self, device, options):
+		self.options = options
+		(self.defines, self.rateDivisor, self.hashspace) = if_else(self.options.vectors, ('-DVECTORS', 500, 0x7FFFFFFF), ('', 1000, 0xFFFFFFFF))
 		self.defines += (' -DOUTPUT_SIZE=' + str(OUTPUT_SIZE))
 		self.defines += (' -DOUTPUT_MASK=' + str(OUTPUT_SIZE - 1))
 
 		self.device = device
-		self.rate = max(float(rate), 0.1)
-		self.askrate = max(int(askrate), 1)
-		self.askrate = min(self.askrate, 10)
-		self.worksize = int(worksize)
-		self.frames = max(int(frames), 3)
-		self.verbose = verbose
-		self.frameSleep = frameSleep
+		self.options.rate = max(self.options.rate, 0.1)
+		self.options.askrate = max(self.options.askrate, 1)
+		self.options.askrate = min(self.options.askrate, 10)
+		self.options.frames = max(self.options.frames, 3)
 		self.longPollActive = self.stop = False
 		self.update = True
 		self.lock = RLock()
@@ -121,22 +119,20 @@ class BitcoinMiner():
 
 		self.backup_pool_index = 0
 		self.errors = 0
-		self.tolerance = tolerance
-		self.failback = failback
 		self.failback_getwork_count = 0
 		self.failback_attempt_count = 0
 		self.pool = None
 
-		host = '%s:%s' % (host.replace('http://', ''), port)
-		self.primary = (user, password, host)
+		host = '%s:%s' % (self.options.host.replace('http://', ''), self.options.port)
+		self.primary = (self.options.user, self.options.password, host)
 		self.setpool(self.primary)
 
 		self.postdata = {'method': 'getwork', 'id': 'json'}
 		self.connection = None
 
 		self.backup = []
-		if backup:
-			for pool in backup.split(','):
+		if self.options.backup:
+			for pool in self.options.backup.split(','):
 				try:
 					user, temp = pool.split(':', 1)
 					pwd, host = temp.split('@')
@@ -148,7 +144,7 @@ class BitcoinMiner():
 	def say(self, format, args=()):
 		with self.outputLock:
 			p = format % args
-			if self.verbose:
+			if self.options.verbose:
 				print '%s,' % datetime.now().strftime(TIME_FORMAT), p
 			else:
 				pool = self.pool[2]+' ' if self.pool else ''
@@ -156,7 +152,7 @@ class BitcoinMiner():
 			sys.stdout.flush()
 
 	def sayLine(self, format, args=()):
-		if not self.verbose:
+		if not self.options.verbose:
 			format = '%s, %s\n' % (datetime.now().strftime(TIME_FORMAT), format)
 		self.say(format, args)
 
@@ -178,7 +174,7 @@ class BitcoinMiner():
 		self.exit()
 
 	def diff1Found(self, hash, target):
-		if self.verbose and target < 0xFFFF0000L:
+		if self.options.verbose and target < 0xFFFF0000L:
 			self.sayLine('checking %s <= %s', (hash, target))
 
 	def blockFound(self, hash, accepted):
@@ -195,7 +191,7 @@ class BitcoinMiner():
 			if self.stop: return
 			try:
 				with self.lock:
-					update = self.update = (self.update or time() - self.lastWork > if_else(self.longPollActive, LONG_POLL_MAX_ASKRATE, self.askrate))
+					update = self.update = (self.update or time() - self.lastWork > if_else(self.longPollActive, LONG_POLL_MAX_ASKRATE, self.options.askrate))
 				if update:
 					work = self.getwork()
 					if self.update:
@@ -240,8 +236,8 @@ class BitcoinMiner():
 	def getwork(self, data=None):
 		save_pool = None
 		try:
-			if self.pool != self.primary and self.failback > 0:
-				if self.failback_getwork_count >= self.failback:
+			if self.pool != self.primary and self.options.failback > 0:
+				if self.failback_getwork_count >= self.options.failback:
 					save_pool = self.pool
 					self.setpool(self.primary)
 					self.connection = None
@@ -270,9 +266,9 @@ class BitcoinMiner():
 				self.sayLine('Still unable to reconnect to primary pool (attempt %s), failing over', self.failback_attempt_count)
 				self.failback_getwork_count = 0
 				return
-			self.say('Problems communicating with bitcoin RPC %s %s', (self.errors, self.tolerance))
+			self.say('Problems communicating with bitcoin RPC %s %s', (self.errors, self.options.tolerance))
 			self.errors += 1
-			if self.errors > self.tolerance+1:
+			if self.errors > self.options.tolerance+1:
 				self.errors = 0
 				if self.backup_pool_index >= len(self.backup):
 					self.sayLine("No more backup pools left. Using primary and starting over.")
@@ -350,8 +346,8 @@ class BitcoinMiner():
 
 	def miningThread(self):
 		self.loadKernel()
-		frame = 1.0 / self.frames
-		unit = self.worksize * 256
+		frame = 1.0 / self.options.frames
+		unit = self.options.worksize * 256
 		globalThreads = unit * 10
 		
 		queue = cl.CommandQueue(self.context)
@@ -366,7 +362,7 @@ class BitcoinMiner():
 
 		work = None
 		while True:
-		        sleep(self.frameSleep)
+		        sleep(self.options.frameSleep)
 			if self.stop: return
 			if (not work) or (not self.workQueue.empty()):
 				try:
@@ -383,7 +379,7 @@ class BitcoinMiner():
 					state2 = partial(state, data, f)
 					calculateF(state, data, f, state2)
 
-			self.miner.search(	queue, (globalThreads, ), (self.worksize, ),
+			self.miner.search(	queue, (globalThreads, ), (self.options.worksize, ),
 								state[0], state[1], state[2], state[3], state[4], state[5], state[6], state[7],
 								state2[1], state2[2], state2[3], state2[5], state2[6], state2[7],
 								pack('I', base),
@@ -406,7 +402,7 @@ class BitcoinMiner():
 					globalThreads = max(unit * int((rate * frame * self.rateDivisor) / unit), unit)
 					lastHashRate = rate
 			t = now - lastRated
-			if (t > self.rate):
+			if (t > self.options.rate):
 				rate = int((threadsRun / t) / self.rateDivisor)
 
 				if (len(acceptHist)):
@@ -436,7 +432,7 @@ class BitcoinMiner():
 				cl.enqueue_write_buffer(queue, output_buf, output)
 
 			if self.updateTime == '':
-				if noncesLeft < (TIMEOUT+1) * globalThreads * self.frames:
+				if noncesLeft < (TIMEOUT+1) * globalThreads * self.options.frames:
 					self.update = True
 					noncesLeft += 0xFFFFFFFFFFFF
 				elif 0xFFFFFFFFFFF < noncesLeft < 0xFFFFFFFFFFFF:
@@ -474,5 +470,5 @@ class BitcoinMiner():
 		finally:
 			if binary: binary.close()
 
-		if (self.worksize == -1):
-			self.worksize = self.miner.search.get_work_group_info(cl.kernel_work_group_info.WORK_GROUP_SIZE, self.device)
+		if (self.options.worksize == -1):
+			self.options.worksize = self.miner.search.get_work_group_info(cl.kernel_work_group_info.WORK_GROUP_SIZE, self.device)
