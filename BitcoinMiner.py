@@ -146,10 +146,10 @@ class BitcoinMiner():
 	def say(self, format, args=()):
 		with self.outputLock:
 			p = format % args
+			pool = self.pool[3]+' ' if self.pool else ''
 			if self.options.verbose:
-				print '%s,' % datetime.now().strftime(TIME_FORMAT), p
+				print '%s%s,' % (pool, datetime.now().strftime(TIME_FORMAT)), p
 			else:
-				pool = self.pool[3]+' ' if self.pool else ''
 				sys.stdout.write('\r%s\r%s%s' % (' '*120, pool, p))
 			sys.stdout.flush()
 
