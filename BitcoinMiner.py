@@ -123,23 +123,25 @@ class BitcoinMiner():
 		self.failback_attempt_count = 0
 		self.pool = None
 
-		host = '%s:%s' % (self.options.host.replace('http://', ''), self.options.port)
-		self.primary = (self.options.user, self.options.password, host)
-		self.setpool(self.primary)
-
 		self.postdata = {'method': 'getwork', 'id': 'json'}
 		self.connection = None
 
-		self.backup = []
-		if self.options.backup:
-			for pool in self.options.backup.split(','):
-				try:
-					user, temp = pool.split(':', 1)
-					pwd, host = temp.split('@')
-					self.backup.append((user, pwd, host))
-				except ValueError:
-					self.sayLine('Ignored invalid backup pool: %s', pool)
-					continue
+		self.servers = []
+		for pool in self.options.servers.split(','):
+			try:
+				temp = pool.split('://', 1)
+				if len(temp) == 1:
+					proto = ''; temp = temp[0]
+				else: proto = temp[0]; temp = temp[1]
+				user, temp = temp.split(':', 1)
+				pwd, host = temp.split('@')
+				self.servers.append((proto, user, pwd, host))
+			except ValueError:
+				self.sayLine("Ignored invalid server entry: '%s'", pool)
+				continue
+		if not self.servers:
+			self.failure('At least one server is required')
+		else: self.setpool(self.servers[0])
 
 	def say(self, format, args=()):
 		with self.outputLock:
@@ -147,8 +149,8 @@ class BitcoinMiner():
 			if self.options.verbose:
 				print '%s,' % datetime.now().strftime(TIME_FORMAT), p
 			else:
-				pool = self.pool[2]+' ' if self.pool else ''
-				sys.stdout.write('\r%s\r%s%s' % (" "*len(p), pool, p))
+				pool = self.pool[3]+' ' if self.pool else ''
+				sys.stdout.write('\r%s\r%s%s' % (' '*120, pool, p))
 			sys.stdout.flush()
 
 	def sayLine(self, format, args=()):
@@ -181,7 +183,6 @@ class BitcoinMiner():
 		self.sayLine('%s, %s', (hash, if_else(accepted, 'accepted', '_rejected_')))
 
 	def mine(self):
-		self.stop = False
 		longPollThread = Thread(target=self.longPollThread)
 		longPollThread.daemon = True
 		longPollThread.start()
@@ -233,24 +234,29 @@ class BitcoinMiner():
 							self.blockFound(hashid, accepted)
 							self.shareCount[if_else(accepted, 1, 0)] += 1
 
+	def connect(self, host, timeout):
+		if self.proto == 'https':
+			return httplib.HTTPSConnection(self.host, strict=True, timeout=timeout)
+		return httplib.HTTPConnection(self.host, strict=True, timeout=timeout)
+
 	def getwork(self, data=None):
 		save_pool = None
 		try:
-			if self.pool != self.primary and self.options.failback > 0:
+			if self.pool != self.servers[0] and self.options.failback > 0:
 				if self.failback_getwork_count >= self.options.failback:
 					save_pool = self.pool
-					self.setpool(self.primary)
+					self.setpool(self.servers[0])
 					self.connection = None
 					self.sayLine("Attempting to fail back to primary pool")
 				self.failback_getwork_count += 1
 			if not self.connection:
-				self.connection = httplib.HTTPConnection(self.host, strict=True, timeout=TIMEOUT)
+				self.connection = self.connect(self.host, TIMEOUT)
 			if data is None:
 				self.getworkCount += 1
 			self.postdata['params'] = if_else(data, [data], [])
 			(self.connection, result) = self.request(self.connection, '/', self.headers, dumps(self.postdata))
 			self.errors = 0
-			if self.pool == self.primary:
+			if self.pool == self.servers[0]:
 				self.backup_pool_index = 0
 				self.failback_getwork_count = 0
 				self.failback_attempt_count = 0
@@ -270,18 +276,19 @@ class BitcoinMiner():
 			self.errors += 1
 			if self.errors > self.options.tolerance+1:
 				self.errors = 0
-				if self.backup_pool_index >= len(self.backup):
+				if self.backup_pool_index >= len(self.servers):
 					self.sayLine("No more backup pools left. Using primary and starting over.")
-					pool = self.primary
+					pool = self.servers[0]
 					self.backup_pool_index = 0
 				else:
-					pool = self.backup[self.backup_pool_index]
+					pool = self.servers[self.backup_pool_index]
 					self.backup_pool_index += 1
 				self.setpool(pool)
 
 	def setpool(self, pool):
 		self.pool = pool
-		user, pwd, host = pool
+		proto, user, pwd, host = pool
+		self.proto = proto
 		self.host = host
 		self.sayLine('Setting pool %s @ %s', (user, host))
 		self.headers = {"User-Agent": USER_AGENT, "Authorization": 'Basic ' + b64encode('%s:%s' % (user, pwd))}
@@ -328,7 +335,7 @@ class BitcoinMiner():
 					if url == '': url = '/'
 				try:
 					if not connection:
-						connection = httplib.HTTPConnection(host, timeout=LONG_POLL_TIMEOUT)
+						connection = self.connect(host, LONG_POLL_TIMEOUT)
 						self.sayLine("LP connected to %s", host)
 					self.longPollActive = True
 					(connection, result) = self.request(connection, url, self.headers)
