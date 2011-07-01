@@ -117,7 +117,7 @@ class BitcoinMiner():
 		self.workQueue = Queue()
 		self.resultQueue = Queue()
 
-		self.backup_pool_index = 0
+		self.backup_pool_index = 1
 		self.errors = 0
 		self.failback_getwork_count = 0
 		self.failback_attempt_count = 0
@@ -166,10 +166,7 @@ class BitcoinMiner():
 		estRate = Decimal(estRate) / 1000
 		totShares = self.shareCount[1] + self.shareCount[0]
 		totSharesE = max(totShares, totShares, 1)
-		eff = 0
-		if (self.getworkCount):
-			eff = self.shareCount[1] * 100 / self.getworkCount
-		self.say('[%.03f MH/s (~%d MH/s)] [Rej: %d/%d (%d%%)] [GW: %d (Eff: %d%%)]', (rate, round(estRate), self.shareCount[0], totShares, self.shareCount[0] * 100 / totSharesE, self.getworkCount, eff))
+		self.say('[%.03f MH/s (~%d MH/s)] [Rej: %d/%d (%d%%)]', (rate, round(estRate), self.shareCount[0], totShares, self.shareCount[0] * 100 / totSharesE))
 
 	def failure(self, message):
 		print '\n%s' % message
@@ -257,7 +254,7 @@ class BitcoinMiner():
 			(self.connection, result) = self.request(self.connection, '/', self.headers, dumps(self.postdata))
 			self.errors = 0
 			if self.pool == self.servers[0]:
-				self.backup_pool_index = 0
+				self.backup_pool_index = 1
 				self.failback_getwork_count = 0
 				self.failback_attempt_count = 0
 			return result['result']
@@ -279,7 +276,7 @@ class BitcoinMiner():
 				if self.backup_pool_index >= len(self.servers):
 					self.sayLine("No more backup pools left. Using primary and starting over.")
 					pool = self.servers[0]
-					self.backup_pool_index = 0
+					self.backup_pool_index = 1
 				else:
 					pool = self.servers[self.backup_pool_index]
 					self.backup_pool_index += 1
@@ -365,7 +362,6 @@ class BitcoinMiner():
 		f = np.zeros(8, np.uint32)
 		output = np.zeros(OUTPUT_SIZE+1, np.uint32)
 		output_buf = cl.Buffer(self.context, cl.mem_flags.WRITE_ONLY | cl.mem_flags.USE_HOST_PTR, hostbuf=output)
-		timedelta = 900
 
 		work = None
 		while True:
@@ -417,10 +413,10 @@ class BitcoinMiner():
 					if LAH[1] != self.shareCount[1]:
 						acceptHist.append(LAH)
 				acceptHist.append( (now, self.shareCount[1]) )
-				while (acceptHist[0][0] < now - timedelta):
+				while (acceptHist[0][0] < now - self.options.estimate):
 					acceptHist.pop(0)
 				newAccept = self.shareCount[1] - acceptHist[0][1]
-				estRate = Decimal(newAccept) * (targetQ) / min(int(now - startTime), timedelta) / 1000
+				estRate = Decimal(newAccept) * (targetQ) / min(int(now - startTime), self.options.estimate) / 1000
 
 				self.sayStatus(rate, estRate)
 				lastRated = now; threadsRun = 0
