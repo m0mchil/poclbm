@@ -112,7 +112,6 @@ class BitcoinMiner():
 		self.lastBlock = self.updateTime = self.longPollURL = ''
 
 		self.shareCount = [0, 0]
-		self.getworkCount = 0
 
 		self.workQueue = Queue()
 		self.resultQueue = Queue()
@@ -150,7 +149,7 @@ class BitcoinMiner():
 			if self.options.verbose:
 				print '%s%s,' % (pool, datetime.now().strftime(TIME_FORMAT)), p
 			else:
-				sys.stdout.write('\r%s\r%s%s' % (' '*120, pool, p))
+				sys.stdout.write('\r%s\r%s%s' % (' '*80, pool, p))
 			sys.stdout.flush()
 
 	def sayLine(self, format, args=()):
@@ -231,10 +230,10 @@ class BitcoinMiner():
 							self.blockFound(hashid, accepted)
 							self.shareCount[if_else(accepted, 1, 0)] += 1
 
-	def connect(self, host, timeout):
-		if self.proto == 'https':
-			return httplib.HTTPSConnection(self.host, strict=True, timeout=timeout)
-		return httplib.HTTPConnection(self.host, strict=True, timeout=timeout)
+	def connect(self, proto, host, timeout):
+		if proto == 'https': connector = httplib.HTTPSConnection
+		else: connector = httplib.HTTPConnection
+		return connector(host, strict=True, timeout=timeout)
 
 	def getwork(self, data=None):
 		save_pool = None
@@ -247,9 +246,7 @@ class BitcoinMiner():
 					self.sayLine("Attempting to fail back to primary pool")
 				self.failback_getwork_count += 1
 			if not self.connection:
-				self.connection = self.connect(self.host, TIMEOUT)
-			if data is None:
-				self.getworkCount += 1
+				self.connection = self.connect(self.proto, self.host, TIMEOUT)
 			self.postdata['params'] = if_else(data, [data], [])
 			(self.connection, result) = self.request(self.connection, '/', self.headers, dumps(self.postdata))
 			self.errors = 0
@@ -324,15 +321,18 @@ class BitcoinMiner():
 			sleep(1)
 			url = self.longPollURL
 			if url != '':
+				proto = self.proto
 				host = self.host
 				parsedUrl = urlsplit(url)
+				if parsedUrl.scheme != '':
+					proto = parsedUrl.scheme
 				if parsedUrl.netloc != '':
 					host = parsedUrl.netloc
 					url = url[url.find(host)+len(host):]
 					if url == '': url = '/'
 				try:
 					if not connection:
-						connection = self.connect(host, LONG_POLL_TIMEOUT)
+						connection = self.connect(proto, host, LONG_POLL_TIMEOUT)
 						self.sayLine("LP connected to %s", host)
 					self.longPollActive = True
 					(connection, result) = self.request(connection, url, self.headers)
