@@ -59,6 +59,10 @@ def if_else(condition, trueVal, falseVal):
 	else:
 		return falseVal
 
+def chunks(l, n):
+	for i in xrange(0, len(l), n):
+		yield l[i:i+n]
+
 def patch(data):
 	pos = data.find('\x7fELF', 1)
 	if pos != -1 and data.find('\x7fELF', pos+1) == -1:
@@ -374,11 +378,14 @@ class BitcoinMiner():
 				else:
 					if not work: continue
 
+					if not 'target' in work: work['target'] = 'ffffffffffffffffffffffffffffffffffffffffffffffffffffffff00000000'
+
 					noncesLeft = self.hashspace
 					data   = np.array(unpack('IIIIIIIIIIIIIIII', work['data'][128:].decode('hex')), dtype=np.uint32)
 					state  = np.array(unpack('IIIIIIII',         work['midstate'].decode('hex')),   dtype=np.uint32)
 					target = np.array(unpack('IIIIIIII',         work['target'].decode('hex')),     dtype=np.uint32)
-					targetQ= int(work['target'], 16) / 2**224
+
+					targetQ= 2**256 / int(''.join(list(chunks(work['target'], 8))[::-1]), 16)
 					state2 = partial(state, data, f)
 					calculateF(state, data, f, state2)
 
