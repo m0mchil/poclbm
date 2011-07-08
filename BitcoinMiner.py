@@ -381,8 +381,10 @@ class BitcoinMiner():
 					if not 'target' in work: work['target'] = 'ffffffffffffffffffffffffffffffffffffffffffffffffffffffff00000000'
 
 					noncesLeft = self.hashspace
+					data0 = np.zeros(64, np.uint32)
+					data0 = np.insert(data0, [0] * 16, unpack('IIIIIIIIIIIIIIII', work['data'][:128].decode('hex')))
 					data   = np.array(unpack('IIIIIIIIIIIIIIII', work['data'][128:].decode('hex')), dtype=np.uint32)
-					state  = np.array(unpack('IIIIIIII',         work['midstate'].decode('hex')),   dtype=np.uint32)
+					state = sha256(STATE, data0)
 					target = np.array(unpack('IIIIIIII',         work['target'].decode('hex')),     dtype=np.uint32)
 
 					targetQ= 2**256 / int(''.join(list(chunks(work['target'], 8))[::-1]), 16)
