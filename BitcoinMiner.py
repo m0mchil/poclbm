@@ -139,7 +139,10 @@ class BitcoinMiner():
 				else: proto = temp[0]; temp = temp[1]
 				user, temp = temp.split(':', 1)
 				pwd, host = temp.split('@')
-				self.servers.append((proto, user, pwd, host))
+				if host.find('#') != -1:
+					host, name = host.split('#')
+				else: name = host
+				self.servers.append((proto, user, pwd, host, name))
 			except ValueError:
 				self.sayLine("Ignored invalid server entry: '%s'", pool)
 				continue
@@ -150,7 +153,7 @@ class BitcoinMiner():
 	def say(self, format, args=()):
 		with self.outputLock:
 			p = format % args
-			pool = self.pool[3]+' ' if self.pool else ''
+			pool = self.pool[4]+' ' if self.pool else ''
 			if self.options.verbose:
 				print '%s%s,' % (pool, datetime.now().strftime(TIME_FORMAT)), p
 			else:
@@ -304,10 +307,10 @@ class BitcoinMiner():
 
 	def setpool(self, pool):
 		self.pool = pool
-		proto, user, pwd, host = pool
+		proto, user, pwd, host, name = pool
 		self.proto = proto
 		self.host = host
-		self.sayLine('Setting pool %s @ %s', (user, host))
+		self.sayLine('Setting pool %s (%s @ %s)', (name, user, host))
 		self.headers = {"User-Agent": USER_AGENT, "Authorization": 'Basic ' + b64encode('%s:%s' % (user, pwd))}
 		self.connection = None
 
