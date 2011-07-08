@@ -1,33 +1,38 @@
-Usage: poclbm.py [options]
+Usage: poclbm.py [OPTION]... SERVER...
+SERVER is one or more [http[s]://]user:pass@host:port
 
 Options:
   --version             show program's version number and exit
   -h, --help            show this help message and exit
-  -u USER, --user=USER  user name
-  --pass=PASSWORD       password
-  -o HOST, --host=HOST  RPC host (without 'http://')
-  -p PORT, --port=PORT  RPC port
-  -r RATE, --rate=RATE  hash rate display interval in seconds, default=1
-  -f FRAMES, --frames=FRAMES
+  --verbose             verbose output, suitable for redirection to log file
+
+  Miner Options:
+    -r RATE, --rate=RATE
+                        hash rate display interval in seconds, default=1
+    -e ESTIMATE, --estimate=ESTIMATE
+                        estimated rate time window in seconds, default 900 (15
+                        minutes)
+    -a ASKRATE, --askrate=ASKRATE
+                        how many seconds between getwork requests, default 5,
+                        max 10
+    -t TOLERANCE, --tolerance=TOLERANCE
+                        use fallback pool only after N consecutive connection
+                        errors, default 2
+    -b FAILBACK, --failback=FAILBACK
+                        attempt to fail back to the primary pool every N
+                        getworks, default 2
+
+  Kernel Options:
+    -p PLATFORM, --platform=PLATFORM
+                        use platform by id
+    -d DEVICE, --device=DEVICE
+                        use device by id, by default asks for device
+    -w WORKSIZE, --worksize=WORKSIZE
+                        work group size, default is maximum returned by opencl
+    -f FRAMES, --frames=FRAMES
                         will try to bring single kernel execution to 1/frames
                         seconds, default=30, increase this for less desktop
                         lag
-  -d DEVICE, --device=DEVICE
-                        use device by id, by default asks for device
-  -a ASKRATE, --askrate=ASKRATE
-                        how many seconds between getwork requests, default 5,
-                        max 10
-  -w WORKSIZE, --worksize=WORKSIZE
-                        work group size, default is maximum returned by opencl
-  -v, --vectors         use vectors
-  -s FRAMESLEEP, --sleep=FRAMESLEEP
+    -s FRAMESLEEP, --sleep=FRAMESLEEP
                         sleep per frame in seconds, default 0
-  --backup=BACKUP       use fallback pools:
-                        user:pass@host:port[,user:pass@host:port]
-  --tolerance=TOLERANCE
-                        use fallback pool only after N consecutive connection
-                        errors, default 2
-  --failback=FAILBACK   attempt to fail back to the primary pool every N
-                        getworks, default 2
-  --verbose             verbose output, suitable for redirection to log file
-  --platform=PLATFORM   use platform by id
+    -v, --vectors       use vectors
