@@ -27,15 +27,10 @@ group.add_option('-s', '--sleep',    dest='frameSleep', default=0,           hel
 group.add_option('-v', '--vectors',  dest='vectors',    action='store_true', help='use vectors')
 parser.add_option_group(group)
 
-(options, args) = parser.parse_args()
-options.servers = ''
-for arg in args:
-	options.servers += arg + ','
-options.servers = options.servers.rstrip(',')
+(options, options.servers) = parser.parse_args()
 
 
 platforms = cl.get_platforms()
-
 
 if options.platform >= len(platforms) or (options.platform == -1 and len(platforms) > 1):
 	print 'Wrong platform or more than one OpenCL platforms found, use --platform to select one of the following\n'

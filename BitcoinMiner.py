@@ -131,7 +131,7 @@ class BitcoinMiner():
 		self.connection = None
 
 		self.servers = []
-		for pool in self.options.servers.split(','):
+		for pool in self.options.servers:
 			try:
 				temp = pool.split('://', 1)
 				if len(temp) == 1:
