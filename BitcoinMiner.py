@@ -2,6 +2,7 @@ import sys
 import socket
 import httplib
 import traceback
+import collections
 
 import pyopencl as cl
 
@@ -207,7 +208,25 @@ class BitcoinMiner():
 				self.sayLine("Unexpected error:")
 				traceback.print_exc()
 
+	def prepareWork(self, work):
+		if isinstance(work, collections.Iterable):
+			p = work['p'] = {}
+
+			if not 'target' in work: work['target'] = 'ffffffffffffffffffffffffffffffffffffffffffffffffffffffff00000000'
+
+			data0 = np.zeros(64, np.uint32)
+			data0 = np.insert(data0, [0] * 16, unpack('IIIIIIIIIIIIIIII', work['data'][:128].decode('hex')))
+			p['data']   =             np.array(unpack('IIIIIIIIIIIIIIII', work['data'][128:].decode('hex')), dtype=np.uint32)
+			p['target'] =             np.array(unpack('IIIIIIII',         work['target'].decode('hex')),     dtype=np.uint32)
+			p['state']  =             sha256(STATE, data0)
+
+			p['targetQ']= 2**256 / int(''.join(list(chunks(work['target'], 8))[::-1]), 16)
+			p['f'] = np.zeros(8, np.uint32)
+			p['state2'] = partial(p['state'], p['data'], p['f'])
+			calculateF(p['state'], p['data'], p['f'], p['state2'])
+
 	def queueWork(self, work):
+		self.prepareWork(work)
 		with self.lock:
 			self.workQueue.put(work)
 			if work:
@@ -363,7 +382,6 @@ class BitcoinMiner():
 		startTime = lastRatedPace = lastRated = lastNTime = time()
 		accepted = base = lastHashRate = threadsRunPace = threadsRun = 0
 		acceptHist = []
-		f = np.zeros(8, np.uint32)
 		output = np.zeros(OUTPUT_SIZE+1, np.uint32)
 		output_buf = cl.Buffer(self.context, cl.mem_flags.WRITE_ONLY | cl.mem_flags.USE_HOST_PTR, hostbuf=output)
 
@@ -378,18 +396,12 @@ class BitcoinMiner():
 				else:
 					if not work: continue
 
-					if not 'target' in work: work['target'] = 'ffffffffffffffffffffffffffffffffffffffffffffffffffffffff00000000'
-
 					noncesLeft = self.hashspace
-					data0 = np.zeros(64, np.uint32)
-					data0 = np.insert(data0, [0] * 16, unpack('IIIIIIIIIIIIIIII', work['data'][:128].decode('hex')))
-					data   = np.array(unpack('IIIIIIIIIIIIIIII', work['data'][128:].decode('hex')), dtype=np.uint32)
-					state = sha256(STATE, data0)
-					target = np.array(unpack('IIIIIIII',         work['target'].decode('hex')),     dtype=np.uint32)
 
-					targetQ= 2**256 / int(''.join(list(chunks(work['target'], 8))[::-1]), 16)
-					state2 = partial(state, data, f)
-					calculateF(state, data, f, state2)
+					data = work['p']['data']
+					state = work['p']['state']
+					state2 = work['p']['state2']
+					f = work['p']['f']
 
 			self.miner.search(	queue, (globalThreads, ), (self.options.worksize, ),
 								state[0], state[1], state[2], state[3], state[4], state[5], state[6], state[7],
@@ -425,7 +437,7 @@ class BitcoinMiner():
 				while (acceptHist[0][0] < now - self.options.estimate):
 					acceptHist.pop(0)
 				newAccept = self.shareCount[1] - acceptHist[0][1]
-				estRate = Decimal(newAccept) * (targetQ) / min(int(now - startTime), self.options.estimate) / 1000
+				estRate = Decimal(newAccept) * (work['p']['targetQ']) / min(int(now - startTime), self.options.estimate) / 1000
 
 				self.sayStatus(rate, estRate)
 				lastRated = now; threadsRun = 0
@@ -437,7 +449,7 @@ class BitcoinMiner():
 				result['work'] = work
 				result['data'] = np.array(data)
 				result['state'] = np.array(state)
-				result['target'] = target
+				result['target'] = work['p']['target']
 				result['output'] = np.array(output)
 				self.resultQueue.put(result)
 				output.fill(0)
