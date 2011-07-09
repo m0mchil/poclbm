@@ -214,6 +214,7 @@ class BitcoinMiner():
 		if isinstance(work, collections.Iterable):
 			p = work['p'] = {}
 
+			if len(work['data']) == 152: work['data'] += '00000000000000800000000000000000000000000000000000000000000000000000000000000000000000000000000080020000'
 			if not 'target' in work: work['target'] = 'ffffffffffffffffffffffffffffffffffffffffffffffffffffffff00000000'
 
 			data0 = np.zeros(64, np.uint32)
