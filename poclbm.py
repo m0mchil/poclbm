@@ -6,7 +6,7 @@ from BitcoinMiner import *
 from optparse import OptionParser
 from optparse import OptionGroup
 
-usage = "usage: %prog [OPTION]... SERVER...\nSERVER is one or more [http[s]://]user:pass@host:port"
+usage = "usage: %prog [OPTION]... SERVER[#tag]...\nSERVER is one or more [http[s]://]user:pass@host:port          (required)\n[#tag] is a per SERVER user friendly name displayed in stats   (optional)"
 parser = OptionParser(version=USER_AGENT, usage=usage)
 parser.add_option('--verbose',        dest='verbose',    action='store_true', help='verbose output, suitable for redirection to log file')
 

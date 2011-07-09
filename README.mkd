@@ -1,5 +1,6 @@
-Usage: poclbm.py [OPTION]... SERVER...
-SERVER is one or more [http[s]://]user:pass@host:port
+Usage: poclbm.py [OPTION]... SERVER[#tag]...
+SERVER is one or more [http[s]://]user:pass@host:port          (required)
+[#tag] is a per SERVER user friendly name displayed in stats   (optional)
 
 Options:
   --version             show program's version number and exit
