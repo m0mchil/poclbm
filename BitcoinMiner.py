@@ -152,7 +152,8 @@ class BitcoinMiner():
 			self.setpool(self.servers[0])
 			self.user_servers = list(self.servers)
 
-	def say(self, format, args=()):
+	def say(self, format, args=(), sayQuiet=False):
+		if self.options.quiet and not sayQuiet: return
 		with self.outputLock:
 			p = format % args
 			pool = self.pool[4]+' ' if self.pool else ''
@@ -166,6 +167,9 @@ class BitcoinMiner():
 		if not self.options.verbose:
 			format = '%s, %s\n' % (datetime.now().strftime(TIME_FORMAT), format)
 		self.say(format, args)
+		
+	def sayQuiet(self, format, args=()):
+		self.say(format, args, True)
 
 	def exit(self):
 		self.stop = True
@@ -175,7 +179,7 @@ class BitcoinMiner():
 		estRate = Decimal(estRate) / 1000
 		totShares = self.shareCount[1] + self.shareCount[0]
 		totSharesE = max(totShares, totShares, 1)
-		self.say('[%.03f MH/s (~%d MH/s)] [Rej: %d/%d (%d%%)]', (rate, round(estRate), self.shareCount[0], totShares, self.shareCount[0] * 100 / totSharesE))
+		self.sayQuiet('[%.03f MH/s (~%d MH/s)] [Rej: %d/%d (%d%%)]', (rate, round(estRate), self.shareCount[0], totShares, self.shareCount[0] * 100 / totSharesE))
 
 	def failure(self, message):
 		print '\n%s' % message
