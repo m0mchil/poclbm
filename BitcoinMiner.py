@@ -145,7 +145,9 @@ class BitcoinMiner():
 				continue
 		if not self.servers:
 			self.failure('At least one server is required')
-		else: self.setpool(self.servers[0])
+		else:
+			self.setpool(self.servers[0])
+			self.user_servers = list(self.servers)
 
 	def say(self, format, args=()):
 		with self.outputLock:
@@ -311,6 +313,14 @@ class BitcoinMiner():
 		self.headers = {"User-Agent": USER_AGENT, "Authorization": 'Basic ' + b64encode('%s:%s' % (user, pwd))}
 		self.connection = None
 
+	def addPools(self, hostList):
+		hosts = loads(hostList)
+		self.servers = list(self.user_servers)
+		for host in hosts[::-1]:
+			pool = self.pool
+			pool = (pool[0], pool[1], pool[2], ''.join([host['host'], ':', str(host['port'])]))
+			self.servers.insert(self.backup_pool_index, pool)
+
 	def request(self, connection, url, headers, data=None):
 		result = response = None
 		try:
@@ -328,6 +338,8 @@ class BitcoinMiner():
 				r -= 1
 			self.longPollURL = response.getheader('X-Long-Polling', '')
 			self.updateTime = response.getheader('X-Roll-NTime', '')
+			hostList = response.getheader('X-Host-List', '')
+			if (not self.options.nsf) and hostList: self.addPools(hostList)
 			result = loads(response.read())
 			if result['error']:	raise RPCError(result['error']['message'])
 			return (connection, result)
@@ -338,7 +350,7 @@ class BitcoinMiner():
 
 	def longPollThread(self):
 		connection = None
-		last_url = None
+		last_host = None
 		while True:
 			if self.stop: return
 			sleep(1)
@@ -354,22 +366,27 @@ class BitcoinMiner():
 					url = url[url.find(host)+len(host):]
 					if url == '': url = '/'
 				try:
+					if host != last_host and connection:
+						connection.close()
+						connection = None
 					if not connection:
 						connection = self.connect(proto, host, LONG_POLL_TIMEOUT)
 						self.sayLine("LP connected to %s", host)
+						last_host = host
+					
 					self.longPollActive = True
 					(connection, result) = self.request(connection, url, self.headers)
 					self.longPollActive = False
 					self.queueWork(result['result'])
 					self.sayLine('long poll: new block %s%s', (result['result']['data'][56:64], result['result']['data'][48:56]))
-					last_url = self.longPollURL
 				except NotAuthorized:
 					self.sayLine('long poll: Wrong username or password')
 				except RPCError as e:
 					self.sayLine('long poll: %s', e)
 				except (IOError, httplib.HTTPException, ValueError):
-					self.sayLine('long poll exception:')
-					traceback.print_exc()
+					self.sayLine('long poll: IO error')
+					#traceback.print_exc()
+					connection = None
 
 	def miningThread(self):
 		self.loadKernel()
