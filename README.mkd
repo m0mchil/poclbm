@@ -7,6 +7,8 @@ Options:
   -h, --help            show this help message and exit
   --verbose             verbose output, suitable for redirection to log file
   -q, --quiet           suppress all output except hash rate display
+  --no-server-failbacks
+                        disable using failback hosts provided by server
 
   Miner Options:
     -r RATE, --rate=RATE
