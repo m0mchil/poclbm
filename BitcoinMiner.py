@@ -313,7 +313,8 @@ class BitcoinMiner():
 		proto, user, pwd, host, name = pool
 		self.proto = proto
 		self.host = host
-		self.sayLine('Setting pool %s (%s @ %s)', (name, user, host))
+		#self.sayLine('Setting pool %s (%s @ %s)', (name, user, host))
+		self.sayLine('Setting pool (%s @ %s)', (user, name))
 		self.headers = {"User-Agent": USER_AGENT, "Authorization": 'Basic ' + b64encode('%s:%s' % (user, pwd))}
 		self.connection = None
 
@@ -322,7 +323,7 @@ class BitcoinMiner():
 		self.servers = list(self.user_servers)
 		for host in hosts[::-1]:
 			pool = self.pool
-			pool = (pool[0], pool[1], pool[2], ''.join([host['host'], ':', str(host['port'])]))
+			pool = (pool[0], pool[1], pool[2], ''.join([host['host'], ':', str(host['port'])]), pool[4])
 			self.servers.insert(self.backup_pool_index, pool)
 
 	def request(self, connection, url, headers, data=None):
@@ -375,7 +376,7 @@ class BitcoinMiner():
 						connection = None
 					if not connection:
 						connection = self.connect(proto, host, LONG_POLL_TIMEOUT)
-						self.sayLine("LP connected to %s", host)
+						self.sayLine("LP connected to %s", self.pool[4])
 						last_host = host
 					
 					self.longPollActive = True
