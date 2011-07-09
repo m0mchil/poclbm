@@ -16,6 +16,7 @@ group.add_option('-e', '--estimate',  dest='estimate',   default=900,         he
 group.add_option('-a', '--askrate',   dest='askrate',    default=5,           help='how many seconds between getwork requests, default 5, max 10', type='int')
 group.add_option('-t', '--tolerance', dest='tolerance',  default=2,           help='use fallback pool only after N consecutive connection errors, default 2', type='int')
 group.add_option('-b', '--failback',  dest='failback',   default=10,          help='attempt to fail back to the primary pool every N getworks, default 2', type='int')
+parser.add_option('--no-server-failbacks', dest='nsf',   action='store_true', help='disable using failback hosts provided by server')
 parser.add_option_group(group)
 
 group = OptionGroup(parser, "Kernel Options")
