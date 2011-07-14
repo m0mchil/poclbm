@@ -24,7 +24,7 @@ Options:
                         errors, default 2
     -b FAILBACK, --failback=FAILBACK
                         attempt to fail back to the primary pool every N
-                        getworks, default 2
+                        getworks, default 10
 
   Kernel Options:
     -p PLATFORM, --platform=PLATFORM
