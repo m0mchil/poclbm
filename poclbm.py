@@ -1,13 +1,25 @@
 #!/usr/bin/python
 
-import pyopencl as cl
-from time import sleep
 from BitcoinMiner import *
-from optparse import OptionParser
-from optparse import OptionGroup
+from optparse import OptionGroup, OptionParser
+from time import sleep
+import HttpTransport
+import pyopencl as cl
+import socket
+
+# Socket wrapper to enable socket.TCP_NODELAY and KEEPALIVE
+realsocket = socket.socket
+def socketwrap(family=socket.AF_INET, type=socket.SOCK_STREAM, proto=0):
+	sockobj = realsocket(family, type, proto)
+	sockobj.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+	sockobj.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+	return sockobj
+socket.socket = socketwrap
+
+VERSION = '20110709'
 
 usage = "usage: %prog [OPTION]... SERVER[#tag]...\nSERVER is one or more [http[s]://]user:pass@host:port          (required)\n[#tag] is a per SERVER user friendly name displayed in stats   (optional)"
-parser = OptionParser(version=USER_AGENT, usage=usage)
+parser = OptionParser(version=VERSION, usage=usage)
 parser.add_option('--verbose',        dest='verbose',    action='store_true', help='verbose output, suitable for redirection to log file')
 parser.add_option('-q', '--quiet',    dest='quiet',      action='store_true', help='suppress all output except hash rate display')
 
@@ -52,10 +64,10 @@ if (options.device == -1 or options.device >= len(devices)):
 
 miner = None
 try:
-	miner = BitcoinMiner(devices[options.device], options)
-	miner.mine()
+	miner = BitcoinMiner(devices[options.device], options, VERSION, HttpTransport.HttpTransport)
+	miner.start()
 except KeyboardInterrupt:
 	print '\nbye'
 finally:
-	if miner: miner.exit()
+	if miner: miner.stop()
 sleep(1.1)
