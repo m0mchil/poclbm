@@ -230,7 +230,7 @@ class BitcoinMiner():
 			p['target'] =             np.array(unpack('IIIIIIII',         work['target'].decode('hex')),     dtype=np.uint32)
 			p['state']  =             sha256(STATE, data0)
 
-			p['targetQ']= 2**256 / int(''.join(list(chunks(work['target'], 8))[::-1]), 16)
+			p['targetQ']= 2**256 / int(''.join(list(chunks(work['target'], 2))[::-1]), 16)
 			p['f'] = np.zeros(8, np.uint32)
 			p['state2'] = partial(p['state'], p['data'], p['f'])
 			calculateF(p['state'], p['data'], p['f'], p['state2'])
