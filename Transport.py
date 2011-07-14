@@ -16,6 +16,8 @@ class Transport(object):
 		self.server = None
 		self.user_agent = 'poclbm/' + miner.version
 
+		self.sent = {}
+
 		self.servers = []
 		for server in self.config.servers:
 			try:
@@ -60,10 +62,12 @@ class Transport(object):
 				else:
 					self.miner.diff1_found(bytereverse(h[6]), result.target[6])
 					if belowOrEquals(h[:7], result.target[:7]):
-						accepted = self.send_internal(result, result.nonce[i])
-						if accepted != None:
-							hashid = pack('I', long(h[6])).encode('hex')
-							self.miner.block_found(hashid, accepted)
+						self.sent[result.nonce[i]] = pack('I', long(h[6])).encode('hex')
+						self.send_internal(result, result.nonce[i])
+
+	def report(self, nonce, accepted):
+		self.miner.block_found(self.sent[nonce], accepted)
+		del self.sent[nonce]
 
 	def set_server(self, server):
 		self.server = server
