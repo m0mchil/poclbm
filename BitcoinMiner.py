@@ -3,12 +3,10 @@ from decimal import Decimal
 from hashlib import md5
 from log import *
 from sha256 import *
-from struct import pack, unpack, error
-from threading import Thread, RLock
+from struct import pack
+from threading import Thread
 from time import sleep, time
 from util import *
-import collections
-import copy
 import log
 import pyopencl as cl
 
@@ -28,13 +26,8 @@ class BitcoinMiner():
 		self.options.askrate = min(self.options.askrate, 10)
 		self.options.frames = max(self.options.frames, 3)
 
-		self.lock = RLock()
-		self.last_work = 0
-		self.last_block = ''
 		self.update_time = False
-
 		self.share_count = [0, 0]
-
 		self.work_queue = Queue()
 		self.transport = transport(self)
 		log.verbose = self.options.verbose
@@ -43,11 +36,12 @@ class BitcoinMiner():
 	def start(self):
 		self.should_stop = False
 		Thread(target=self.mining_thread).start()
-		self.transport.start()
+		self.transport.loop()
 
 	def stop(self):
-		self.should_stop = True
 		self.transport.stop()
+		self.should_stop = True
+
 
 	def say_status(self, rate, estimated_rate):
 		rate = Decimal(rate) / 1000
@@ -61,44 +55,11 @@ class BitcoinMiner():
 			say_line('checking %s <= %s', (hash, target))
 
 	def block_found(self, hash, accepted):
+		self.share_count[if_else(accepted, 1, 0)] += 1
 		say_line('%s, %s', (hash, if_else(accepted, 'accepted', '_rejected_')))
 
-	def prepare_work(self, work):
-		if isinstance(work, collections.Iterable):
-			job = Object()
-
-			if len(work['data']) == 152:
-				work['data'] += '00000000000000800000000000000000000000000000000000000000000000000000000000000000000000000000000080020000'
-			if not 'target' in work:
-				work['target'] = 'ffffffffffffffffffffffffffffffffffffffffffffffffffffffff00000000'
-
-			binary_data = work['data'].decode('hex')
-			data0 = np.zeros(64, np.uint32)
-			data0 = np.insert(data0, [0] * 16, unpack('IIIIIIIIIIIIIIII', binary_data[:64]))
-
-			job.targetQ = 2**256 / int(''.join(list(chunks(work['target'], 2))[::-1]), 16)
-			job.target = np.array(unpack('IIIIIIII', work['target'].decode('hex')), dtype=np.uint32)
-			job.header = binary_data[:68]
-			job.merkle_end = np.uint32(unpack('I', binary_data[64:68])[0])
-			job.time =       np.uint32(unpack('I', binary_data[68:72])[0])
-			job.difficulty =  np.uint32(unpack('I', binary_data[72:76])[0])
-			job.last_block = data0[6]
-			job.state =	sha256(STATE, data0)
-			job.f = np.zeros(8, np.uint32)
-			job.state2 = partial(job.state, job.merkle_end, job.time, job.difficulty, job.f)
-			calculateF(job.state, job.merkle_end, job.time, job.difficulty, job.f, job.state2)
-			return job
-
-	def queue_work(self, work):
-		job = self.prepare_work(work)
-		with self.lock:
-			self.work_queue.put(job)
-			if job:
-				self.update = False; self.last_work = time()
-				if self.last_block != job.last_block:
-					self.last_block = job.last_block
-					while not self.transport.result_queue.empty():
-						self.transport.result_queue.get(False)
+	def queue(self, work):
+		self.work_queue.put(work)
 
 	def mining_thread(self):
 		self.load_kernel()
@@ -181,7 +142,7 @@ class BitcoinMiner():
 				result.target = work.target
 				result.state = np.array(state)
 				result.nonce = np.array(output)
-				self.transport.result_queue.put(result)
+				self.transport.queue(result)
 				output.fill(0)
 				cl.enqueue_write_buffer(queue, output_buffer, output)
 

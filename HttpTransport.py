@@ -2,11 +2,12 @@ from Transport import Transport
 from base64 import b64encode
 from json import dumps, loads
 from log import *
-from sha256 import hash
+from sha256 import *
 from threading import Thread
 from time import sleep, time
 from urlparse import urlsplit
 from util import *
+import collections
 import httplib
 import traceback
 
@@ -26,28 +27,32 @@ class HttpTransport(Transport):
 		self.postdata = {'method': 'getwork', 'id': 'json'}
 
 		self.update = True
+		self.last_work = 0
+		self.last_block = ''
 		self.long_poll_active = False
 		self.long_poll_url = ''
 
-	def start(self):
+		self.lock = RLock()
+
+	def loop(self):
 		self.should_stop = False
-		long_poll_thread = Thread(target=self.long_poll_thread)
-		long_poll_thread.daemon = True
-		long_poll_thread.start()
+		thread = Thread(target=self.long_poll_thread)
+		thread.daemon = True
+		thread.start()
 
 		while True:
 			if self.should_stop: return
 			try:
-				with self.miner.lock:
-					update = self.update = (self.update or (time() - self.miner.lastWork) > if_else(self.long_poll_active, self.long_poll_max_askrate, self.miner.options.askrate))
+				with self.lock:
+					update = self.update = (self.update or (time() - self.last_work) > if_else(self.long_poll_active, self.long_poll_max_askrate, self.config.askrate))
 				if update:
 					work = self.getwork()
 					if self.update:
-						self.miner.queue_work(work)
+						self.queue_work(work)
 
 				while not self.result_queue.empty():
 					result = self.result_queue.get(False)
-					with self.miner.lock:
+					with self.lock:
 						rv = self.send_result(result)
 				sleep(1)
 			except Exception:
@@ -77,7 +82,7 @@ class HttpTransport(Transport):
 			self.long_poll_url = response.getheader('X-Long-Polling', '')
 			self.miner.update_time = bool(response.getheader('X-Roll-NTime', ''))
 			hostList = response.getheader('X-Host-List', '')
-			if (not self.miner.options.nsf) and hostList: self.add_servers(loads(hostList))
+			if (not self.config.nsf) and hostList: self.add_servers(loads(hostList))
 			result = loads(response.read())
 			if result['error']:	raise RPCError(result['error']['message'])
 			return (connection, result)
@@ -89,8 +94,8 @@ class HttpTransport(Transport):
 	def getwork(self, data=None):
 		save_server = None
 		try:
-			if self.server != self.servers[0] and self.miner.options.failback > 0:
-				if self.failback_getwork_count >= self.miner.options.failback:
+			if self.server != self.servers[0] and self.config.failback > 0:
+				if self.failback_getwork_count >= self.config.failback:
 					save_server = self.server
 					say_line("Attempting to fail back to primary server")
 					self.set_server(self.servers[0])
@@ -116,9 +121,9 @@ class HttpTransport(Transport):
 				say_line('Still unable to reconnect to primary server (attempt %s), failing over', self.failback_attempt_count)
 				self.failback_getwork_count = 0
 				return
-			say('Problems communicating with bitcoin RPC %s %s', (self.errors, self.miner.options.tolerance))
+			say('Problems communicating with bitcoin RPC %s %s', (self.errors, self.config.tolerance))
 			self.errors += 1
-			if self.errors > self.miner.options.tolerance + 1:
+			if self.errors > self.config.tolerance + 1:
 				self.errors = 0
 				if self.backup_pool_index >= len(self.servers):
 					say_line("No more backup pools left. Using primary and starting over.")
@@ -129,24 +134,9 @@ class HttpTransport(Transport):
 					self.backup_pool_index += 1
 				self.set_server(pool)
 
-	def send_result(self, result):
-		for i in xrange(self.miner.output_size):
-			if result.nonce[i]:
-				h = hash(result.state, result.merkle_end, result.time, result.difficulty, result.nonce[i])
-				if h[7] != 0:
-					say_line('Verification failed, check hardware!')
-					self.miner.stop()
-				else:
-					self.miner.diff1_found(bytereverse(h[6]), result.target[6])
-					if belowOrEquals(h[:7], result.target[:7]):
-						#d = result['work']['data']
-						#d = ''.join([d[:136], pack('I', long(result['data'][1])).encode('hex'), d[144:152], pack('I', long(result['output'][i])).encode('hex'), d[160:]])
-						data = ''.join([result.header.encode('hex'), pack('III', long(result.time), long(result.difficulty), long(result.nonce[i])).encode('hex'), '000000800000000000000000000000000000000000000000000000000000000000000000000000000000000080020000'])
-						hashid = pack('I', long(h[6])).encode('hex')
-						accepted = self.getwork(data)
-						if accepted != None:
-							self.miner.block_found(hashid, accepted)
-							self.miner.share_count[if_else(accepted, 1, 0)] += 1
+	def send_internal(self, result, nonce):
+		data = ''.join([result.header.encode('hex'), pack('III', long(result.time), long(result.difficulty), long(nonce)).encode('hex'), '000000800000000000000000000000000000000000000000000000000000000000000000000000000000000080020000'])
+		return self.getwork(data)
 
 	def long_poll_thread(self):
 		last_host = None
@@ -175,7 +165,7 @@ class HttpTransport(Transport):
 					self.long_poll_active = False
 					if self.should_stop:
 						return
-					self.miner.queue_work(result['result'])
+					self.queue_work(result['result'])
 					say_line('long poll: new block %s%s', (result['result']['data'][56:64], result['result']['data'][48:56]))
 				except NotAuthorized:
 					say_line('long poll: Wrong username or password')
@@ -204,3 +194,41 @@ class HttpTransport(Transport):
 		if self.lp_connection:
 			self.lp_connection.close()
 			self.lp_connection = None
+
+	def prepare_work(self, work):
+		if isinstance(work, collections.Iterable):
+			job = Object()
+
+			if len(work['data']) == 152:
+				work['data'] += '00000000000000800000000000000000000000000000000000000000000000000000000000000000000000000000000080020000'
+			if not 'target' in work:
+				work['target'] = 'ffffffffffffffffffffffffffffffffffffffffffffffffffffffff00000000'
+
+			binary_data = work['data'].decode('hex')
+			data0 = np.zeros(64, np.uint32)
+			data0 = np.insert(data0, [0] * 16, unpack('IIIIIIIIIIIIIIII', binary_data[:64]))
+
+			job.target = np.array(unpack('IIIIIIII', work['target'].decode('hex')), dtype=np.uint32)
+			job.header = binary_data[:68]
+			job.merkle_end = np.uint32(unpack('I', binary_data[64:68])[0])
+			job.time       = np.uint32(unpack('I', binary_data[68:72])[0])
+			job.difficulty = np.uint32(unpack('I', binary_data[72:76])[0])
+			job.last_block = data0[6]
+			job.state =	sha256(STATE, data0)
+			job.f = np.zeros(8, np.uint32)
+			job.state2 = partial(job.state, job.merkle_end, job.time, job.difficulty, job.f)
+			calculateF(job.state, job.merkle_end, job.time, job.difficulty, job.f, job.state2)
+
+			job.targetQ = 2**256 / int(''.join(list(chunks(work['target'], 2))[::-1]), 16)
+			return job
+
+	def queue_work(self, work):
+		work = self.prepare_work(work)
+		with self.lock:
+			self.miner.queue(work)
+			if work:
+				self.update = False; self.last_work = time()
+				if self.last_block != work.last_block:
+					self.last_block = work.last_block
+					while not self.result_queue.empty():
+						self.result_queue.get(False)
