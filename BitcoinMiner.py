@@ -54,12 +54,12 @@ class BitcoinMiner():
 		if self.options.verbose and target < 0xFFFF0000L:
 			say_line('checking %s <= %s', (hash, target))
 
+	def share_found(self, hash):
+		pass
+
 	def block_found(self, hash, accepted):
 		self.share_count[if_else(accepted, 1, 0)] += 1
 		say_line('%s, %s', (hash, if_else(accepted, 'accepted', '_rejected_')))
-
-	def queue(self, work):
-		self.work_queue.put(work)
 
 	def mining_thread(self):
 		self.load_kernel()
@@ -85,9 +85,7 @@ class BitcoinMiner():
 				except Empty: continue
 				else:
 					if not work: continue
-
 					nonces_left = self.hashspace
-
 					state = work.state
 					state2 = work.state2
 					f = work.f
@@ -142,13 +140,13 @@ class BitcoinMiner():
 				result.target = work.target
 				result.state = np.array(state)
 				result.nonce = np.array(output)
-				self.transport.queue(result)
+				self.transport.result_queue.put(result)
 				output.fill(0)
 				cl.enqueue_write_buffer(queue, output_buffer, output)
 
 			if not self.update_time:
 				if nonces_left < (self.transport.timeout+1) * global_threads * self.options.frames:
-					self.update = True
+					self.transport.update = True
 					nonces_left += 0xFFFFFFFFFFFF
 				elif 0xFFFFFFFFFFF < nonces_left < 0xFFFFFFFFFFFF:
 					say_line('warning: job finished, miner is idle')

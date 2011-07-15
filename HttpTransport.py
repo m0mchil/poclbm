@@ -7,7 +7,6 @@ from threading import Thread
 from time import sleep, time
 from urlparse import urlsplit
 from util import *
-import collections
 import httplib
 import traceback
 
@@ -26,13 +25,8 @@ class HttpTransport(Transport):
 
 		self.postdata = {'method': 'getwork', 'id': 'json'}
 
-		self.update = True
-		self.last_work = 0
-		self.last_block = ''
 		self.long_poll_active = False
 		self.long_poll_url = ''
-
-		self.lock = RLock()
 
 	def loop(self):
 		self.should_stop = False
@@ -53,7 +47,7 @@ class HttpTransport(Transport):
 				while not self.result_queue.empty():
 					result = self.result_queue.get(False)
 					with self.lock:
-						rv = self.send_result(result)
+						rv = self.send(result)
 				sleep(1)
 			except Exception:
 				say_line("Unexpected error:")
@@ -197,12 +191,10 @@ class HttpTransport(Transport):
 			self.lp_connection.close()
 			self.lp_connection = None
 
-	def prepare_work(self, work):
-		if isinstance(work, collections.Iterable):
+	def decode(self, work):
+		if work:
 			job = Object()
 
-			if len(work['data']) == 152:
-				work['data'] += '00000000000000800000000000000000000000000000000000000000000000000000000000000000000000000000000080020000'
 			if not 'target' in work:
 				work['target'] = 'ffffffffffffffffffffffffffffffffffffffffffffffffffffffff00000000'
 
@@ -210,27 +202,16 @@ class HttpTransport(Transport):
 			data0 = np.zeros(64, np.uint32)
 			data0 = np.insert(data0, [0] * 16, unpack('IIIIIIIIIIIIIIII', binary_data[:64]))
 
-			job.target = np.array(unpack('IIIIIIII', work['target'].decode('hex')), dtype=np.uint32)
-			job.header = binary_data[:68]
+			job.target     = np.array(unpack('IIIIIIII', work['target'].decode('hex')), dtype=np.uint32)
+			job.header     = binary_data[:68]
 			job.merkle_end = np.uint32(unpack('I', binary_data[64:68])[0])
 			job.time       = np.uint32(unpack('I', binary_data[68:72])[0])
 			job.difficulty = np.uint32(unpack('I', binary_data[72:76])[0])
-			job.last_block = data0[6]
-			job.state =	sha256(STATE, data0)
-			job.f = np.zeros(8, np.uint32)
-			job.state2 = partial(job.state, job.merkle_end, job.time, job.difficulty, job.f)
+			job.state      = sha256(STATE, data0)
+			job.f          = np.zeros(8, np.uint32)
+			job.state2     = partial(job.state, job.merkle_end, job.time, job.difficulty, job.f)
+			job.targetQ    = 2**256 / int(''.join(list(chunks(work['target'], 2))[::-1]), 16)
+
 			calculateF(job.state, job.merkle_end, job.time, job.difficulty, job.f, job.state2)
 
-			job.targetQ = 2**256 / int(''.join(list(chunks(work['target'], 2))[::-1]), 16)
 			return job
-
-	def queue_work(self, work):
-		work = self.prepare_work(work)
-		with self.lock:
-			self.miner.queue(work)
-			if work:
-				self.update = False; self.last_work = time()
-				if self.last_block != work.last_block:
-					self.last_block = work.last_block
-					while not self.result_queue.empty():
-						self.result_queue.get(False)
