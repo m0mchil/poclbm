@@ -54,12 +54,10 @@ class BitcoinMiner():
 		if self.options.verbose and target < 0xFFFF0000L:
 			say_line('checking %s <= %s', (hash, target))
 
-	def share_found(self, hash):
-		pass
-
-	def block_found(self, hash, accepted):
+	def share_found(self, hash, accepted, is_block):
 		self.share_count[if_else(accepted, 1, 0)] += 1
-		say_line('%s, %s', (hash, if_else(accepted, 'accepted', '_rejected_')))
+		if self.options.verbose or is_block or not accepted:
+			say_line('%s%s, %s', (if_else(is_block, 'block ', ''), hash, if_else(accepted, 'accepted', '_rejected_')))
 
 	def mining_thread(self):
 		self.load_kernel()
@@ -72,7 +70,7 @@ class BitcoinMiner():
 		start_time = last_rated_pace = last_rated = last_n_time = time()
 		accepted = base = last_hash_rate = threads_run_pace = threads_run = 0
 		accept_hist = []
-		output = np.zeros(self.output_size+1, np.uint32)
+		output = np.zeros(self.output_size + 1, np.uint32)
 		output_buffer = cl.Buffer(self.context, cl.mem_flags.WRITE_ONLY | cl.mem_flags.USE_HOST_PTR, hostbuf=output)
 
 		work = None
@@ -90,11 +88,11 @@ class BitcoinMiner():
 					state2 = work.state2
 					f = work.f
 
-			self.miner.search(	queue, (global_threads, ), (self.options.worksize, ),
+			self.miner.search(queue, (global_threads,), (self.options.worksize,),
 								state[0], state[1], state[2], state[3], state[4], state[5], state[6], state[7],
 								state2[1], state2[2], state2[3], state2[5], state2[6], state2[7],
 								pack('I', base),
-								f[0], f[1], f[2], f[3], f[4],# f[5], f[6], f[7],
+								f[0], f[1], f[2], f[3], f[4], # f[5], f[6], f[7],
 								output_buffer)
 			cl.enqueue_read_buffer(queue, output_buffer, output)
 
@@ -120,7 +118,7 @@ class BitcoinMiner():
 					LAH = accept_hist.pop()
 					if LAH[1] != self.share_count[1]:
 						accept_hist.append(LAH)
-				accept_hist.append( (now, self.share_count[1]) )
+				accept_hist.append((now, self.share_count[1]))
 				while (accept_hist[0][0] < now - self.options.estimate):
 					accept_hist.pop(0)
 				new_accept = self.share_count[1] - accept_hist[0][1]
@@ -145,7 +143,7 @@ class BitcoinMiner():
 				cl.enqueue_write_buffer(queue, output_buffer, output)
 
 			if not self.update_time:
-				if nonces_left < (self.transport.timeout+1) * global_threads * self.options.frames:
+				if nonces_left < (self.transport.timeout + 1) * global_threads * self.options.frames:
 					self.transport.update = True
 					nonces_left += 0xFFFFFFFFFFFF
 				elif 0xFFFFFFFFFFF < nonces_left < 0xFFFFFFFFFFFF:

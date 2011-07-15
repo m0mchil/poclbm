@@ -22,7 +22,6 @@ class Transport(object):
 
 		self.difficulty = 0
 		self.true_target = None
-		self.target = ''
 		self.last_block = ''
 
 		self.sent = {}
@@ -87,11 +86,15 @@ class Transport(object):
 				else:
 					self.miner.diff1_found(bytereverse(h[6]), result.target[6])
 					if belowOrEquals(h[:7], result.target[:7]):
-						self.sent[result.nonce[i]] = pack('I', long(h[6])).encode('hex')
+						is_block = belowOrEquals(h[:7], self.true_target[:7])
+						hash6 = pack('I', long(h[6])).encode('hex')
+						hash5 = pack('I', long(h[5])).encode('hex')
+						self.sent[result.nonce[i]] = (is_block, hash6, hash5)
 						self.send_internal(result, result.nonce[i])
 
 	def report(self, nonce, accepted):
-		self.miner.block_found(self.sent[nonce], accepted)
+		is_block, hash6, hash5 = self.sent[nonce]
+		self.miner.share_found(if_else(is_block, hash6+hash5, hash6), accepted, is_block)
 		del self.sent[nonce]
 
 	def set_server(self, server):
