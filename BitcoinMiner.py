@@ -48,7 +48,7 @@ class BitcoinMiner():
 		estimated_rate = Decimal(estimated_rate) / 1000
 		total_shares = self.share_count[1] + self.share_count[0]
 		total_shares_estimator = max(total_shares, total_shares, 1)
-		say_quiet('[%.03f MH/s (~%d MH/s)] [Rej: %d/%d (%d%%)]', (rate, round(estimated_rate), self.share_count[0], total_shares, self.share_count[0] * 100 / total_shares_estimator))
+		say_quiet('[%.03f MH/s (~%d MH/s)] [Rej: %d/%d (%.02f%%)]', (rate, round(estimated_rate), self.share_count[0], total_shares, float(self.share_count[0]) * 100 / total_shares_estimator))
 
 	def diff1_found(self, hash, target):
 		if self.options.verbose and target < 0xFFFF0000L:
