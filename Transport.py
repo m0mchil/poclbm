@@ -62,12 +62,9 @@ class Transport(object):
 
 	def set_difficulty(self, difficulty):
 		self.difficulty = difficulty
-		bits = hex(difficulty)
-		bits = bits[2:len(bits) - 1]
+		bits = '%08x' % difficulty
 		bits = ''.join(list(chunks(bits, 2))[::-1])
-		true_target = hex(int(bits[2:], 16) * 2 ** (8 * (int(bits[:2], 16) - 3)))
-		true_target = true_target[2:len(true_target) - 1]
-		true_target = '0' * (64 - len(true_target)) + true_target
+		true_target = '%064x' % (int(bits[2:], 16) * 2 ** (8 * (int(bits[:2], 16) - 3)),)
 		true_target = ''.join(list(chunks(true_target, 2))[::-1])
 		self.true_target = np.array(unpack('IIIIIIII', true_target.decode('hex')), dtype=np.uint32)
 
