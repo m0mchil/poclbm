@@ -21,7 +21,7 @@ class BitcoinMiner():
 		self.defines += (' -DOUTPUT_MASK=' + str(self.output_size - 1))
 
 		self.device = device
-		self.options.rate = max(self.options.rate, 0.1)
+		self.options.rate = if_else(self.options.verbose, max(self.options.rate, 60), max(self.options.rate, 0.1))
 		self.options.askrate = max(self.options.askrate, 1)
 		self.options.askrate = min(self.options.askrate, 10)
 		self.options.frames = max(self.options.frames, 3)
@@ -56,7 +56,7 @@ class BitcoinMiner():
 
 	def share_found(self, hash, accepted, is_block):
 		self.share_count[if_else(accepted, 1, 0)] += 1
-		if self.options.verbose or is_block or not accepted:
+		if self.options.verbose or is_block:
 			say_line('%s%s, %s', (if_else(is_block, 'block ', ''), hash, if_else(accepted, 'accepted', '_rejected_')))
 
 	def mining_thread(self):
@@ -68,7 +68,7 @@ class BitcoinMiner():
 		queue = cl.CommandQueue(self.context)
 
 		start_time = last_rated_pace = last_rated = last_n_time = time()
-		accepted = base = last_hash_rate = threads_run_pace = threads_run = 0
+		base = last_hash_rate = threads_run_pace = threads_run = 0
 		accept_hist = []
 		output = np.zeros(self.output_size + 1, np.uint32)
 		output_buffer = cl.Buffer(self.context, cl.mem_flags.WRITE_ONLY | cl.mem_flags.USE_HOST_PTR, hostbuf=output)

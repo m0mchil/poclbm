@@ -24,7 +24,7 @@ parser.add_option('--verbose',        dest='verbose',    action='store_true', he
 parser.add_option('-q', '--quiet',    dest='quiet',      action='store_true', help='suppress all output except hash rate display')
 
 group = OptionGroup(parser, "Miner Options")
-group.add_option('-r', '--rate',      dest='rate',       default=1,           help='hash rate display interval in seconds, default=1', type='float')
+group.add_option('-r', '--rate',      dest='rate',       default=1,           help='hash rate display interval in seconds, default=1 (60 with --verbose)', type='float')
 group.add_option('-e', '--estimate',  dest='estimate',   default=900,         help='estimated rate time window in seconds, default 900 (15 minutes)', type='int')
 group.add_option('-a', '--askrate',   dest='askrate',    default=5,           help='how many seconds between getwork requests, default 5, max 10', type='int')
 group.add_option('-t', '--tolerance', dest='tolerance',  default=2,           help='use fallback pool only after N consecutive connection errors, default 2', type='int')
