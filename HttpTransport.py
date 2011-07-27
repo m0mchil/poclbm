@@ -100,7 +100,7 @@ class HttpTransport(Transport):
 			(self.connection, result) = self.request(self.connection, '/', self.headers, dumps(self.postdata))
 			self.errors = 0
 			if self.server == self.servers[0]:
-				self.backup_pool_index = 1
+				self.backup_server_index = 1
 				self.failback_getwork_count = 0
 				self.failback_attempt_count = 0
 			return result['result']
@@ -119,13 +119,13 @@ class HttpTransport(Transport):
 			self.errors += 1
 			if self.errors > self.config.tolerance + 1:
 				self.errors = 0
-				if self.backup_pool_index >= len(self.servers):
+				if self.backup_server_index >= len(self.servers):
 					say_line("No more backup pools left. Using primary and starting over.")
 					pool = self.servers[0]
-					self.backup_pool_index = 1
+					self.backup_server_index = 1
 				else:
-					pool = self.servers[self.backup_pool_index]
-					self.backup_pool_index += 1
+					pool = self.servers[self.backup_server_index]
+					self.backup_server_index += 1
 				self.set_server(pool)
 
 	def send_internal(self, result, nonce):
@@ -162,7 +162,8 @@ class HttpTransport(Transport):
 					if self.should_stop:
 						return
 					self.queue_work(result['result'])
-					say_line('long poll: new block %s%s', (result['result']['data'][56:64], result['result']['data'][48:56]))
+					if self.config.verbose:
+						say_line('long poll: new block %s%s', (result['result']['data'][56:64], result['result']['data'][48:56]))
 				except NotAuthorized:
 					say_line('long poll: Wrong username or password')
 				except RPCError as e:
