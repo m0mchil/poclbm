@@ -38,10 +38,10 @@ class BitcoinMiner():
 		Thread(target=self.mining_thread).start()
 		self.transport.loop()
 
-	def stop(self):
+	def stop(self, message = None):
+		if message: print '\n%s' % message
 		self.transport.stop()
 		self.should_stop = True
-
 
 	def say_status(self, rate, estimated_rate):
 		rate = Decimal(rate) / 1000

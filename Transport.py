@@ -42,13 +42,17 @@ class Transport(object):
 			except ValueError:
 				say_line("Ignored invalid server entry: '%s'", server)
 				continue
+
+	def loop(self):
 		if not self.servers:
-			self.failure('At least one server is required')
+			print '\nAt least one server is required'
+			return
 		else:
 			self.set_server(self.servers[0])
 			self.user_servers = list(self.servers)
+		self.loop_internal()
 
-	def loop(self):
+	def loop_internal(self):
 		raise NotImplementedError
 
 	def stop(self):

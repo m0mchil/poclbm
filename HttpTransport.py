@@ -28,7 +28,7 @@ class HttpTransport(Transport):
 		self.long_poll_active = False
 		self.long_poll_url = ''
 
-	def loop(self):
+	def loop_internal(self):
 		self.should_stop = False
 		thread = Thread(target=self.long_poll_thread)
 		thread.daemon = True
@@ -105,7 +105,7 @@ class HttpTransport(Transport):
 				self.failback_attempt_count = 0
 			return result['result']
 		except NotAuthorized:
-			self.failure('Wrong username or password')
+			self.miner.stop('Wrong username or password')
 		except RPCError as e:
 			say('%s', e)
 		except (IOError, httplib.HTTPException, ValueError):
