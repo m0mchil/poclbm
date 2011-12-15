@@ -2,6 +2,8 @@ from Queue import Queue
 from log import *
 from sha256 import *
 from time import time
+from urlparse import urlsplit
+from util import if_else
 import log
 
 class Transport(object):
@@ -29,7 +31,7 @@ class Transport(object):
 		self.servers = []
 		for server in self.config.servers:
 			try:
-				temp = server.split('://', 1)
+				"""temp = server.split('://', 1)
 				if len(temp) == 1:
 					proto = ''; temp = temp[0]
 				else: proto = temp[0]; temp = temp[1]
@@ -37,11 +39,47 @@ class Transport(object):
 				pwd, host = temp.split('@')
 				if host.find('#') != -1:
 					host, name = host.split('#')
-				else: name = host
-				self.servers.append((proto, user, pwd, host, name))
+				else: name = host"""
+				#self.servers.append((proto, user, pwd, host, name))
+				self.servers.append(self.parse_server(server))
 			except ValueError:
 				say_line("Ignored invalid server entry: '%s'", server)
 				continue
+
+	def parse_server(self, server):
+		"""temp = server.split('://', 1)
+		if len(temp) == 1:
+			proto = ''; temp = temp[0]
+		else: proto = temp[0]; temp = temp[1]
+
+		temp = temp.split('@', 1)
+		if len(temp) == 1:
+			user_pass = ''; temp = temp[0]
+		else: user_pass = temp[0]; temp = temp[1]
+
+		if user_pass:
+			user, pwd = user_pass.split(':')
+		else:
+			user = pwd = ''
+
+		user, temp = temp.split(':', 1)
+
+		pwd, host = temp.split('@')
+		if host.find('#') != -1:
+			host, name = host.split('#')
+		else: name = host"""
+		print server
+		parsed = urlsplit(server, 'http')
+		print parsed
+		proto = parsed.scheme
+		user = parsed.username
+		pwd = parsed.password
+		host = parsed.hostname
+		port = parsed.port
+		name = parsed.fragment
+		if not name: name = host
+
+		return (proto, user, pwd, host, port, name)
 
 	def loop(self):
 		if not self.servers:
@@ -102,9 +140,10 @@ class Transport(object):
 
 	def set_server(self, server):
 		self.server = server
-		proto, user, pwd, host, name = server
+		proto, user, pwd, host, port, name = server
 		self.proto = proto
-		self.host = host
+		print server, host, port, if_else, str(port)
+		self.host = host + if_else(port, ':' + str(port), '')
 		#self.say_line('Setting server %s (%s @ %s)', (name, user, host))
 		say_line('Setting server (%s @ %s)', (user, name))
 		log.server = name + ' '
