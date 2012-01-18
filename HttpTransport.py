@@ -8,6 +8,7 @@ from time import sleep, time
 from urlparse import urlsplit
 from util import *
 import httplib
+import socks
 import traceback
 
 
@@ -53,10 +54,40 @@ class HttpTransport(Transport):
 				say_line("Unexpected error:")
 				traceback.print_exc()
 
-	def connect(self, proto, host, timeout):
+	def ensure_connected(self, connection, proto, host, timeout):
+		if connection != None and connection.sock != None:
+			return connection, False
+
 		if proto == 'https': connector = httplib.HTTPSConnection
 		else: connector = httplib.HTTPConnection
-		return connector(host, strict=True, timeout=timeout)
+
+		if not self.config.proxy:
+			return connector(host, strict=True, timeout=timeout), True
+
+		host, port = host.split(':')
+
+		proxy_proto, user, pwd, proxy_host, name = self.config.proxy
+		proxy_port = 1050
+		proxy_host = proxy_host.split(':')
+		if len(proxy_host) > 1:
+			proxy_port = int(proxy_host[1]); proxy_host = proxy_host[0]
+
+		connection = connector(host, strict=True)
+		connection.sock = socks.socksocket()
+		#connection.sock.settimeout(timeout)
+
+		proxy_type = socks.PROXY_TYPE_SOCKS5
+		if proxy_proto == 'http':
+			proxy_type = socks.PROXY_TYPE_HTTP
+		elif proxy_proto == 'socks4':
+			proxy_type = socks.PROXY_TYPE_SOCKS4
+
+		connection.sock.setproxy(proxy_type, proxy_host, proxy_port, True, user, pwd)
+		try:
+			connection.sock.connect((host, int(port)))
+		except socks.ProxyError as e:
+			self.miner.stop('Proxy error: ' + str(e))
+		return connection, True
 
 	def request(self, connection, url, headers, data=None):
 		result = response = None
@@ -94,8 +125,7 @@ class HttpTransport(Transport):
 					say_line("Attempting to fail back to primary server")
 					self.set_server(self.servers[0])
 				self.failback_getwork_count += 1
-			if not self.connection:
-				self.connection = self.connect(self.proto, self.host, self.timeout)
+			self.connection = self.ensure_connected(self.connection, self.proto, self.host, self.timeout)[0]
 			self.postdata['params'] = if_else(data, [data], [])
 			(self.connection, result) = self.request(self.connection, '/', self.headers, dumps(self.postdata))
 			self.errors = 0
@@ -137,7 +167,6 @@ class HttpTransport(Transport):
 	def long_poll_thread(self):
 		last_host = None
 		while True:
-			sleep(1)
 			url = self.long_poll_url
 			if url != '':
 				proto = self.proto
@@ -151,8 +180,8 @@ class HttpTransport(Transport):
 					if url == '': url = '/'
 				try:
 					if host != last_host: self.close_lp_connection()
-					if not self.lp_connection:
-						self.lp_connection = self.connect(proto, host, self.long_poll_timeout)
+					self.lp_connection, changed = self.ensure_connected(self.lp_connection, proto, host, self.long_poll_timeout)
+					if changed:
 						say_line("LP connected to %s", self.server[4])
 						last_host = host
 					
@@ -166,12 +195,15 @@ class HttpTransport(Transport):
 						say_line('long poll: new block %s%s', (result['result']['data'][56:64], result['result']['data'][48:56]))
 				except NotAuthorized:
 					say_line('long poll: Wrong username or password')
+					sleep(.5)
 				except RPCError as e:
 					say_line('long poll: %s', e)
+					sleep(.5)
 				except (IOError, httplib.HTTPException, ValueError):
 					say_line('long poll: IO error')
 					#traceback.print_exc()
 					self.close_lp_connection()
+					sleep(.5)
 
 	def stop(self):
 		self.should_stop = True

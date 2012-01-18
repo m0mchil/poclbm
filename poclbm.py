@@ -18,7 +18,7 @@ socket.socket = socketwrap
 
 VERSION = '20110709'
 
-usage = "usage: %prog [OPTION]... SERVER[#tag]...\nSERVER is one or more [http[s]://]user:pass@host:port          (required)\n[#tag] is a per SERVER user friendly name displayed in stats   (optional)"
+usage = "usage: %prog [OPTION]... SERVER[#tag]...\nSERVER is one or more [http[s]://]user:pass@host:port          (required)\n[#tag] is a per SERVER user friendly name displayed in stats (optional)"
 parser = OptionParser(version=VERSION, usage=usage)
 parser.add_option('--verbose',        dest='verbose',    action='store_true', help='verbose output, suitable for redirection to log file')
 parser.add_option('-q', '--quiet',    dest='quiet',      action='store_true', help='suppress all output except hash rate display')

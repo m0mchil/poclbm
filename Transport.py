@@ -2,7 +2,6 @@ from Queue import Queue
 from log import *
 from sha256 import *
 from time import time
-from urlparse import urlsplit
 from util import if_else
 import log
 
@@ -28,58 +27,44 @@ class Transport(object):
 
 		self.sent = {}
 
+		if self.config.proxy:
+			self.config.proxy = self.parse_server(self.config.proxy, False)
+
 		self.servers = []
 		for server in self.config.servers:
 			try:
-				"""temp = server.split('://', 1)
-				if len(temp) == 1:
-					proto = ''; temp = temp[0]
-				else: proto = temp[0]; temp = temp[1]
-				user, temp = temp.split(':', 1)
-				pwd, host = temp.split('@')
-				if host.find('#') != -1:
-					host, name = host.split('#')
-				else: name = host"""
-				#self.servers.append((proto, user, pwd, host, name))
 				self.servers.append(self.parse_server(server))
 			except ValueError:
 				say_line("Ignored invalid server entry: '%s'", server)
 				continue
 
-	def parse_server(self, server):
-		"""temp = server.split('://', 1)
+	def parse_server(self, server, mailAsUser=True):
+		temp = server.split('://', 1)
 		if len(temp) == 1:
 			proto = ''; temp = temp[0]
 		else: proto = temp[0]; temp = temp[1]
-
-		temp = temp.split('@', 1)
-		if len(temp) == 1:
-			user_pass = ''; temp = temp[0]
-		else: user_pass = temp[0]; temp = temp[1]
-
-		if user_pass:
-			user, pwd = user_pass.split(':')
+		if mailAsUser:
+			user, temp = temp.split(':', 1)
+			pwd, host = temp.split('@')
 		else:
-			user = pwd = ''
+			temp = temp.split('@', 1)
+			if len(temp) == 1:
+				user = ''
+				pwd = ''
+				host = temp[0]
+			else:
+				if temp[0].find(':') <> -1:
+					user, pwd = temp[0].split(':')
+				else:
+					user = temp[0]
+					pwd = ''
+				host = temp[1]
 
-		user, temp = temp.split(':', 1)
-
-		pwd, host = temp.split('@')
 		if host.find('#') != -1:
 			host, name = host.split('#')
-		else: name = host"""
-		print server
-		parsed = urlsplit(server, 'http')
-		print parsed
-		proto = parsed.scheme
-		user = parsed.username
-		pwd = parsed.password
-		host = parsed.hostname
-		port = parsed.port
-		name = parsed.fragment
-		if not name: name = host
+		else: name = host
 
-		return (proto, user, pwd, host, port, name)
+		return (proto, user, pwd, host, name)
 
 	def loop(self):
 		if not self.servers:
@@ -135,16 +120,15 @@ class Transport(object):
 
 	def report(self, nonce, accepted):
 		is_block, hash6, hash5 = self.sent[nonce]
-		self.miner.share_found(if_else(is_block, hash6+hash5, hash6), accepted, is_block)
+		self.miner.share_found(if_else(is_block, hash6 + hash5, hash6), accepted, is_block)
 		del self.sent[nonce]
 
 	def set_server(self, server):
 		self.server = server
-		proto, user, pwd, host, port, name = server
+		proto, user, pwd, host, name = server
 		self.proto = proto
-		print server, host, port, if_else, str(port)
-		self.host = host + if_else(port, ':' + str(port), '')
-		#self.say_line('Setting server %s (%s @ %s)', (name, user, host))
+		self.host = host
+		#say_line('Setting server %s (%s @ %s)', (name, user, host))
 		say_line('Setting server (%s @ %s)', (user, name))
 		log.server = name + ' '
 
