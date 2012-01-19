@@ -159,7 +159,7 @@ class BitcoinMiner():
 		self.context = cl.Context([self.device], None, None)
 		if (self.device.extensions.find('cl_amd_media_ops') != -1):
 			self.defines += ' -DBITALIGN'
-			if self.device.name in ['Cedar',
+			if self.device.name.strip('\r\n \x00\t') in ['Cedar',
 									'Redwood',
 									'Juniper',
 									'Cypress',
