@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python
 
 from BitcoinMiner import *
 from optparse import OptionGroup, OptionParser
