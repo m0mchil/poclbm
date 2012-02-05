@@ -85,7 +85,7 @@ class HttpTransport(Transport):
 		connection.sock.setproxy(proxy_type, proxy_host, proxy_port, True, user, pwd)
 		try:
 			connection.sock.connect((host, int(port)))
-		except socks.ProxyError as e:
+		except socks.Socks5AuthError as e:
 			self.miner.stop('Proxy error: ' + str(e))
 		return connection, True
 
@@ -138,7 +138,7 @@ class HttpTransport(Transport):
 			self.miner.stop('Wrong username or password')
 		except RPCError as e:
 			say('%s', e)
-		except (IOError, httplib.HTTPException, ValueError):
+		except (IOError, httplib.HTTPException, ValueError, socks.ProxyError):
 			if save_server:
 				self.failback_attempt_count += 1
 				self.set_server(save_server)
@@ -199,7 +199,7 @@ class HttpTransport(Transport):
 				except RPCError as e:
 					say_line('long poll: %s', e)
 					sleep(.5)
-				except (IOError, httplib.HTTPException, ValueError):
+				except (IOError, httplib.HTTPException, ValueError, socks.ProxyError):
 					say_line('long poll: IO error')
 					#traceback.print_exc()
 					self.close_lp_connection()
