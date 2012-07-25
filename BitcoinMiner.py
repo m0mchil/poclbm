@@ -10,6 +10,19 @@ from util import *
 import log
 import pyopencl as cl
 
+ADL_PRESENT = False
+
+try:
+	from adl3 import ADLPMActivity, ADL_Overdrive5_CurrentActivity_Get, \
+		ADLTemperature, ADL_Overdrive5_Temperature_Get, ADL_Adapter_NumberOfAdapters_Get, \
+		AdapterInfo, LPAdapterInfo, ADL_Adapter_AdapterInfo_Get, ADL_Adapter_ID_Get, \
+		ADL_OK
+	from ctypes import sizeof, byref, c_int, c_long, cast
+	from collections import namedtuple
+	ADL_PRESENT = True
+except ImportError:
+	pass
+
 
 class BitcoinMiner():
 	def __init__(self, device, options, version, transport):
@@ -32,6 +45,9 @@ class BitcoinMiner():
 		self.transport = transport(self)
 		log.verbose = self.options.verbose
 		log.quiet = self.options.quiet
+
+		if ADL_PRESENT:
+			self.adapterIndex = self.get_adapter_info()[self.options.device].iAdapterIndex
 
 	def start(self):
 		self.should_stop = False
@@ -67,13 +83,14 @@ class BitcoinMiner():
 		
 		queue = cl.CommandQueue(self.context)
 
-		start_time = last_rated_pace = last_rated = last_n_time = time()
+		start_time = last_rated_pace = last_rated = last_n_time = last_temperature = time()
 		base = last_hash_rate = threads_run_pace = threads_run = 0
 		accept_hist = []
 		output = np.zeros(self.output_size + 1, np.uint32)
 		output_buffer = cl.Buffer(self.context, cl.mem_flags.WRITE_ONLY | cl.mem_flags.USE_HOST_PTR, hostbuf=output)
 
 		work = None
+		temperature = 0
 		while True:
 		        sleep(self.options.frameSleep)
 			if self.should_stop: return
@@ -88,30 +105,42 @@ class BitcoinMiner():
 					state2 = work.state2
 					f = work.f
 
-			self.miner.search(queue, (global_threads,), (self.options.worksize,),
-								state[0], state[1], state[2], state[3], state[4], state[5], state[6], state[7],
-								state2[1], state2[2], state2[3], state2[5], state2[6], state2[7],
-								pack('I', base),
-								f[0], f[1], f[2], f[3], f[4], # f[5], f[6], f[7],
-								output_buffer)
-			cl.enqueue_read_buffer(queue, output_buffer, output)
+			if temperature < self.options.cutoff_temp:
+				self.miner.search(queue, (global_threads,), (self.options.worksize,),
+									state[0], state[1], state[2], state[3], state[4], state[5], state[6], state[7],
+									state2[1], state2[2], state2[3], state2[5], state2[6], state2[7],
+									pack('I', base),
+									f[0], f[1], f[2], f[3], f[4], # f[5], f[6], f[7],
+									output_buffer)
+				cl.enqueue_read_buffer(queue, output_buffer, output)
 
-			nonces_left -= global_threads
-			threads_run_pace += global_threads
-			threads_run += global_threads
-			base = uint32(base + global_threads)
+				nonces_left -= global_threads
+				threads_run_pace += global_threads
+				threads_run += global_threads
+				base = uint32(base + global_threads)
+			else:
+				threads_run_pace = 0
+				last_rated_pace = time()
+				sleep(self.options.cutoff_interval)
 
 			now = time()
+			if ADL_PRESENT:
+				t = now - last_temperature
+				if temperature >= self.options.cutoff_temp or t > 1:
+					last_temperature = now
+					temperature = self.get_temperature()
+
 			t = now - last_rated_pace
-			if (t > 1):
+			if t > 1:
 				rate = (threads_run_pace / t) / self.rate_divisor
 				last_rated_pace = now; threads_run_pace = 0
 				r = last_hash_rate / rate
 				if r < 0.9 or r > 1.1:
 					global_threads = max(unit * int((rate * frame * self.rate_divisor) / unit), unit)
 					last_hash_rate = rate
+
 			t = now - last_rated
-			if (t > self.options.rate):
+			if t > self.options.rate:
 				rate = int((threads_run / t) / self.rate_divisor)
 
 				if accept_hist:
@@ -197,3 +226,49 @@ class BitcoinMiner():
 
 		if (self.options.worksize == -1):
 			self.options.worksize = self.miner.search.get_work_group_info(cl.kernel_work_group_info.WORK_GROUP_SIZE, self.device)
+
+	def get_temperature(self):	
+		temperature = ADLTemperature()
+		temperature.iSize = sizeof(temperature)
+	
+		if ADL_Overdrive5_Temperature_Get(self.adapterIndex, 0, byref(temperature)) == ADL_OK:
+			return temperature.iTemperature/1000.0
+		return 0
+
+	def get_adapter_info(self):
+		adapter_info = []
+		num_adapters = c_long(-1)
+		if ADL_Adapter_NumberOfAdapters_Get(byref(num_adapters)) != ADL_OK:
+			raise ADLError("ADL_Adapter_NumberOfAdapters_Get failed.")
+
+		AdapterInfoArray = (AdapterInfo * num_adapters.value)() 
+
+		if ADL_Adapter_AdapterInfo_Get(cast(AdapterInfoArray, LPAdapterInfo), sizeof(AdapterInfoArray)) != ADL_OK:
+			raise ADLError("ADL_Adapter_AdapterInfo_Get failed.")
+
+		deviceAdapter = namedtuple('DeviceAdapter', ['AdapterIndex', 'AdapterID', 'BusNumber', 'UDID'])
+		devices = []
+
+		for adapter in AdapterInfoArray:
+			index = adapter.iAdapterIndex
+			busNum = adapter.iBusNumber
+			udid = adapter.strUDID
+
+			adapterID = c_int(-1)
+
+			if ADL_Adapter_ID_Get(index, byref(adapterID)) != ADL_OK:
+				raise ADLError("ADL_Adapter_Active_Get failed.")
+
+			found = False
+			for device in devices:
+				if (device.AdapterID.value == adapterID.value):
+					found = True
+					break
+
+			if (found == False):
+				devices.append(deviceAdapter(index, adapterID, busNum, udid))
+
+		for device in devices:
+			adapter_info.append(AdapterInfoArray[device.AdapterIndex])
+
+		return adapter_info
