@@ -6,6 +6,7 @@ from time import sleep
 from util import if_else, tokenize
 from version import VERSION
 import log
+import signal
 import socket
 
 
@@ -67,6 +68,11 @@ options.version = VERSION
 options.max_update_time = 60
 
 options.device = tokenize(options.device, 'device', [])
+
+def signal_handler(signum, frame):
+	raise KeyboardInterrupt
+
+signal.signal(signal.SIGUSR1, signal_handler)
 
 options.cutoff_temp = tokenize(options.cutoff_temp, 'cutoff_temp', [95], float)
 options.cutoff_interval = tokenize(options.cutoff_interval, 'cutoff_interval', [0.01], float)
