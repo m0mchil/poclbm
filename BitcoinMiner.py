@@ -17,7 +17,7 @@ try:
 		ADLTemperature, ADL_Overdrive5_Temperature_Get, ADL_Adapter_NumberOfAdapters_Get, \
 		AdapterInfo, LPAdapterInfo, ADL_Adapter_AdapterInfo_Get, ADL_Adapter_ID_Get, \
 		ADL_OK
-	from ctypes import sizeof, byref, c_int, c_long, cast
+	from ctypes import sizeof, byref, c_int, cast
 	from collections import namedtuple
 	ADL_PRESENT = True
 except ImportError:
@@ -237,7 +237,7 @@ class BitcoinMiner():
 
 	def get_adapter_info(self):
 		adapter_info = []
-		num_adapters = c_long(-1)
+		num_adapters = c_int(-1)
 		if ADL_Adapter_NumberOfAdapters_Get(byref(num_adapters)) != ADL_OK:
 			raise ADLError("ADL_Adapter_NumberOfAdapters_Get failed.")
 
