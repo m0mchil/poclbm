@@ -3,7 +3,7 @@
 from BitcoinMiner import *
 from optparse import OptionGroup, OptionParser
 from time import sleep
-import HttpTransport
+import Servers
 import pyopencl as cl
 import socket
 
@@ -23,18 +23,18 @@ socket.socket = socketwrap
 
 VERSION = '20120205'
 
-usage = "usage: %prog [OPTION]... SERVER[#tag]...\nSERVER is one or more [http[s]://]user:pass@host:port          (required)\n[#tag] is a per SERVER user friendly name displayed in stats (optional)"
+usage = "usage: %prog [OPTION]... SERVER[#tag]...\nSERVER is one or more [http[s]|stratum://]user:pass@host:port          (required)\n[#tag] is a per SERVER user friendly name displayed in stats (optional)"
 parser = OptionParser(version=VERSION, usage=usage)
 parser.add_option('--verbose',        dest='verbose',    action='store_true', help='verbose output, suitable for redirection to log file')
 parser.add_option('-q', '--quiet',    dest='quiet',      action='store_true', help='suppress all output except hash rate display')
-parser.add_option('--proxy',          dest='proxy',      default='',          help='specify as [proto://user:pass@]host:port (proto is one of socks4, socks5, http; default is socks5)')
+parser.add_option('--proxy',          dest='proxy',      default='',          help='specify as [[socks4|socks5|http://]user:pass@]host:port (default proto is socks5)')
 
 group = OptionGroup(parser, "Miner Options")
 group.add_option('-r', '--rate',          dest='rate',       default=1,       help='hash rate display interval in seconds, default=1 (60 with --verbose)', type='float')
 group.add_option('-e', '--estimate',      dest='estimate',   default=900,     help='estimated rate time window in seconds, default 900 (15 minutes)', type='int')
 group.add_option('-a', '--askrate',       dest='askrate',    default=5,       help='how many seconds between getwork requests, default 5, max 10', type='int')
 group.add_option('-t', '--tolerance',     dest='tolerance',  default=2,       help='use fallback pool only after N consecutive connection errors, default 2', type='int')
-group.add_option('-b', '--failback',      dest='failback',   default=10,      help='attempt to fail back to the primary pool every N getworks, default 10', type='int')
+group.add_option('-b', '--failback',      dest='failback',   default=60,      help='attempt to fail back to the primary pool after N seconds, default 60', type='int')
 group.add_option('--cutoff_temp',         dest='cutoff_temp',default=95,      help='(requires github.com/mjmvisser/adl3) temperature at which to skip kernel execution, in C, default=95', type='float')
 group.add_option('--cutoff_interval',     dest='cutoff_interval',default=0.01, help='(requires adl3) how long to not execute calculations if CUTOFF_TEMP is reached, in seconds, default=0.01', type='float')
 group.add_option('--no-server-failbacks', dest='nsf',        action='store_true', help='disable using failback hosts provided by server')
@@ -82,7 +82,7 @@ try:
 		pass
 	#end init adl
 
-	miner = BitcoinMiner(devices[options.device], options, VERSION, HttpTransport.HttpTransport)
+	miner = BitcoinMiner(devices[options.device], options, VERSION, Servers.Servers)
 	miner.start()
 except KeyboardInterrupt:
 	print '\nbye'

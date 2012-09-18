@@ -167,7 +167,10 @@ class BitcoinMiner():
 				result.target = work.target
 				result.state = np.array(state)
 				result.nonce = np.array(output)
-				self.transport.result_queue.put(result)
+				result.job_id = work.job_id
+				result.extranonce2 = work.extranonce2
+				result.server = work.server
+				self.transport.put(result)
 				output.fill(0)
 				cl.enqueue_write_buffer(queue, output_buffer, output)
 
