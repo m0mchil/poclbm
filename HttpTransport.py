@@ -229,9 +229,13 @@ class HttpTransport(Transport):
 
 		if work:
 			if self.stratum_header and 'stratum+tcp://'in self.stratum_header:
-				host = urlparse.urlparse(self.stratum_header).netloc
-				say_line('diverted to stratum on %s', host)
-				return host
+				proto = self.stratum_header.find('://')
+				if proto != -1:
+					host = self.stratum_header[proto+3:]
+					#this doesn't work in windows/python 2.6
+					#host = urlparse.urlparse(self.stratum_header).netloc
+					say_line('diverted to stratum on %s', host)
+					return host
 			else:
 				say_line('using JSON-RPC (no stratum header)')
 				self.queue_work(work)
