@@ -176,8 +176,8 @@ class StratumTransport(Transport):
 			#mining.get_version
 			if message['method'] == 'mining.get_version':
 				with self.send_lock:
-					self.send_message({"error": null, "id": message['id'], "result": self.user_agent})
-	
+					self.send_message({"error": None, "id": message['id'], "result": self.user_agent})
+
 			#mining.set_difficulty
 			elif message['method'] == 'mining.set_difficulty':
 				say_line("Setting new difficulty: %s", message['params'][0])
@@ -198,7 +198,7 @@ class StratumTransport(Transport):
 
 			#response to mining.subscribe
 			#store extranonce and extranonce2_size
-			if type(message['result']) is list and message['result'][0][0] == 'mining.notify':
+			if message['id'] == 's':
 				self.extranonce = message['result'][1]
 				self.extranonce2_size = message['result'][2]
 				self.subscribed = True
@@ -224,14 +224,14 @@ class StratumTransport(Transport):
 					self.authorized = True
 
 	def subscribe(self):
-		self.send_message({'params': [], 'method': 'mining.subscribe'})
+		self.send_message({'id': 's', 'method': 'mining.subscribe', 'params': []})
 		for i in xrange(10):
 			sleep(1)
 			if self.subscribed: break
 		return self.subscribed
 
 	def authorize(self):
-		self.send_message({'id': self.server[1], 'params': [self.server[1], self.server[2]], 'method': 'mining.authorize'})
+		self.send_message({'id': self.user, 'method': 'mining.authorize', 'params': [self.user, self.pwd]})
 		for i in xrange(10):
 			sleep(1)
 			if self.authorized != None: break
