@@ -21,7 +21,7 @@ def socketwrap(family=socket.AF_INET, type=socket.SOCK_STREAM, proto=0):
 	return sockobj
 socket.socket = socketwrap
 
-VERSION = '20120919'
+VERSION = '20120920'
 
 usage = "usage: %prog [OPTION]... SERVER[#tag]...\nSERVER is one or more [http[s]|stratum://]user:pass@host:port          (required)\n[#tag] is a per SERVER user friendly name displayed in stats (optional)"
 parser = OptionParser(version=VERSION, usage=usage)
