@@ -122,7 +122,8 @@ class Servers(object):
 
 	def stop(self):
 		self.should_stop = True
-		self.server_transport().stop()
+		if self.server:
+			self.server_transport().stop()
 
 	#callers must provide hex encoded block header and target
 	def decode(self, server, block_header, target, job_id = None, extranonce2 = None):
@@ -220,6 +221,8 @@ class Servers(object):
 		return self.server[4]
 
 	def server_transport(self):
+		if not self.server:
+			return None
 		if len(self.server) < 6:
 			if self.server[0] == 'stratum':
 				self.server = self.server + (StratumTransport.StratumTransport(self, self.server), )
