@@ -223,11 +223,9 @@ class Servers(object):
 		if len(self.server) < 6:
 			if self.server[0] == 'stratum':
 				self.server = self.server + (StratumTransport.StratumTransport(self, self.server), )
-			elif self.server[0] == 'http' or self.server[0] == 'https':
-				self.server = self.server + (HttpTransport.HttpTransport(self, self.server), )
 			else:
 				http_server = HttpTransport.HttpTransport(self, self.server)
-				say_line('no protocol specified, detecting...')
+				say_line('checking for stratum...')
 
 				stratum_host = http_server.detect_stratum()
 				if stratum_host:
