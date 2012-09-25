@@ -16,7 +16,7 @@ try:
 	from adl3 import ADLPMActivity, ADL_Overdrive5_CurrentActivity_Get, \
 		ADLTemperature, ADL_Overdrive5_Temperature_Get, ADL_Adapter_NumberOfAdapters_Get, \
 		AdapterInfo, LPAdapterInfo, ADL_Adapter_AdapterInfo_Get, ADL_Adapter_ID_Get, \
-		ADL_OK
+		ADLError, ADL_OK
 	from ctypes import sizeof, byref, c_int, cast
 	from collections import namedtuple
 	ADL_PRESENT = True
