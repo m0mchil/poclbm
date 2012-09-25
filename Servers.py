@@ -7,13 +7,13 @@ import StratumTransport
 import log
 
 class Servers(object):
-	def __init__(self, miner):
+	def __init__(self, config):
 		self.lock = RLock()
-		self.miner = miner
-		self.config = miner.options
-		self.update = True
+		self.miners = []
+		self.config = config
 		self.last_work = 0
-		self.timeout = 5
+		self.update_time = True
+		self.max_update_time = config.max_update_time
 
 		self.backup_server_index = 1
 		self.errors = 0
@@ -23,7 +23,7 @@ class Servers(object):
 		self.save_server = None
 		self.server_map = {}
 
-		self.user_agent = 'poclbm/' + miner.version
+		self.user_agent = 'poclbm/' + config.version
 
 		self.difficulty = 0
 		self.true_target = None
@@ -70,6 +70,16 @@ class Servers(object):
 		else: name = host
 
 		return (proto, user, pwd, host, name)
+
+	def add_miner(self, miner):
+		self.miners.append(miner)
+		miner.servers = self
+
+	def updatable_miner(self):
+		for miner in self.miners:
+			if miner.update:
+				miner.update = False
+				return miner
 
 	def loop(self):
 		self.should_stop = False
@@ -148,6 +158,9 @@ class Servers(object):
 			job.server      = server
 	
 			calculateF(job.state, job.merkle_end, job.time, job.difficulty, job.f, job.state2)
+
+			if job.difficulty != self.difficulty:
+				self.set_difficulty(job.difficulty)
 	
 			return job
 
@@ -158,20 +171,14 @@ class Servers(object):
 		true_target = ''.join(list(chunks(true_target, 2))[::-1])
 		self.true_target = np.array(unpack('IIIIIIII', true_target.decode('hex')), dtype=np.uint32)
 
-	def process(self, work):
-		if work:
-			if work.difficulty != self.difficulty:
-				self.set_difficulty(work.difficulty)
-
 	def send(self, result, send_callback):
-		for i in xrange(self.miner.output_size):
+		for i in xrange(result.miner.output_size):
 			if result.nonce[i]:
 				h = hash(result.state, result.merkle_end, result.time, result.difficulty, result.nonce[i])
 				if h[7] != 0:
 					say_line('Verification failed, check hardware!')
-					#self.miner.stop()
 				else:
-					self.miner.diff1_found(bytereverse(h[6]), result.target[6])
+					self.diff1_found(bytereverse(h[6]), result.target[6])
 					if belowOrEquals(h[:7], result.target[:7]):
 						is_block = belowOrEquals(h[:7], self.true_target[:7])
 						hash6 = pack('I', long(h[6])).encode('hex')
@@ -179,9 +186,24 @@ class Servers(object):
 						self.sent[result.nonce[i]] = (is_block, hash6, hash5)
 						return send_callback(result, result.nonce[i])
 
-	def report(self, nonce, accepted):
+	def diff1_found(self, hash, target):
+		if self.config.verbose and target < 0xFFFF0000L:
+			say_line('checking %s <= %s', (hash, target))
+
+	def status_updated(self):
+		rate = sum([m.rate for m in self.miners])
+		estimated_rate = sum([m.estimated_rate for m in self.miners])
+		rejected_shares = sum([m.share_count[0] for m in self.miners])
+		total_shares = rejected_shares + sum([m.share_count[1] for m in self.miners])
+		total_shares_estimator = max(total_shares, 1)
+		say_quiet('[%.03f MH/s (~%d MH/s)] [Rej: %d/%d (%.02f%%)]', (rate, round(estimated_rate), rejected_shares, total_shares, float(rejected_shares) * 100 / total_shares_estimator))
+
+	def report(self, miner, nonce, accepted):
 		is_block, hash6, hash5 = self.sent[nonce]
-		self.miner.share_found(if_else(is_block, hash6 + hash5, hash6), accepted, is_block)
+		miner.share_count[if_else(accepted, 1, 0)] += 1
+		hash = if_else(is_block, hash6 + hash5, hash6)
+		if self.config.verbose or is_block:
+			say_line('%s%s, %s', (if_else(is_block, 'block ', ''), hash, if_else(accepted, 'accepted', '_rejected_')))
 		del self.sent[nonce]
 
 	def set_server_by_index(self, server_index):
@@ -202,11 +224,14 @@ class Servers(object):
 			server = (server[0], server[1], server[2], ''.join([host['host'], ':', str(host['port'])]), server[4])
 			self.servers.insert(self.backup_server_index, server)
 
-	def queue_work(self, server, block_header, target = None, job_id = None, extranonce2 = None):
+	def queue_work(self, server, block_header, target = None, job_id = None, extranonce2 = None, miner=None):
 		work = self.decode(server, block_header, target, job_id, extranonce2)
-		self.process(work)
 		with self.lock:
-			self.miner.work_queue.put(work)
+			if not miner:
+				miner = self.miners[0]
+				for i in xrange(1, len(self.miners)):
+					self.miners[i].update = True
+			miner.work_queue.put(work)
 			if work:
 				self.update = False; self.last_work = time()
 				if self.last_block != work.header[25:29]:

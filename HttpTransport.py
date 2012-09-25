@@ -23,7 +23,6 @@ class HttpTransport(Transport):
 		
 		self.connection = self.lp_connection = None
 		self.long_poll_timeout = 3600
-		self.long_poll_max_askrate = 60 - self.servers.timeout
 		self.max_redirects = 3
 
 		self.postdata = {'method': 'getwork', 'id': 'json'}
@@ -47,11 +46,11 @@ class HttpTransport(Transport):
 
 			try:
 				with self.servers.lock:
-					update = self.servers.update = (self.servers.update or (time() - self.servers.last_work) > if_else(self.long_poll_active, self.long_poll_max_askrate, self.config.askrate))
-				if update:
-					work = self.getwork()
-					if self.servers.update:
-						self.queue_work(work)
+					miner = self.servers.updatable_miner()
+					while miner:
+						work = self.getwork()
+						self.queue_work(work, miner)
+						miner = self.servers.updatable_miner()
 
 				while not self.result_queue.empty():
 					result = self.result_queue.get(False)
@@ -63,7 +62,7 @@ class HttpTransport(Transport):
 				traceback.print_exc()
 				break
 
-	def ensure_connected(self, connection, proto, host, timeout):
+	def ensure_connected(self, connection, proto, host):
 		if connection != None and connection.sock != None:
 			return connection, False
 
@@ -71,7 +70,7 @@ class HttpTransport(Transport):
 		else: connector = httplib.HTTPConnection
 
 		if not self.config.proxy:
-			return connector(host, strict=True, timeout=timeout), True
+			return connector(host, strict=True), True
 
 		host, port = host.split(':')
 
@@ -83,7 +82,6 @@ class HttpTransport(Transport):
 
 		connection = connector(host, strict=True)
 		connection.sock = socks.socksocket()
-		#connection.sock.settimeout(timeout)
 
 		proxy_type = socks.PROXY_TYPE_SOCKS5
 		if proxy_proto == 'http':
@@ -104,18 +102,7 @@ class HttpTransport(Transport):
 		try:
 			if data: connection.request('POST', url, data, headers)
 			else: connection.request('GET', url, headers=headers)
-			if timeout:
-				start = time()
-				connection.sock.settimeout(min(timeout, 5))
-				response = None
-				while not response:
-					if self.should_stop or time() - start > timeout: return
-					try:
-						response = connection.getresponse()
-					except socket.timeout:
-						pass					
-			else:
-				response = connection.getresponse()
+			response = self.timeout_response(connection, timeout)
 			if response.status == httplib.UNAUTHORIZED:
 				say_line('Wrong username or password for %s', self.servers.server_name())
 				raise NotAuthorized()
@@ -125,10 +112,10 @@ class HttpTransport(Transport):
 				url = response.getheader('Location', '')
 				if r == 0 or url == '': raise HTTPException('Too much or bad redirects')
 				connection.request('GET', url, headers=headers)
-				response = connection.getresponse();
+				response = self.timeout_response(connection, timeout)
 				r -= 1
 			self.long_poll_url = response.getheader('X-Long-Polling', '')
-			self.servers.miner.update_time = bool(response.getheader('X-Roll-NTime', ''))
+			self.servers.update_time = bool(response.getheader('X-Roll-NTime', ''))
 			hostList = response.getheader('X-Host-List', '')
 			self.stratum_header = response.getheader('x-stratum', '')
 			if (not self.config.nsf) and hostList: self.servers.add_servers(loads(hostList))
@@ -142,9 +129,24 @@ class HttpTransport(Transport):
 				connection.close()
 				connection = None
 
+	def timeout_response(self, connection, timeout):
+		if timeout:
+			start = time()
+			connection.sock.settimeout(5)
+			response = None
+			while not response:
+				if self.should_stop or time() - start > timeout: return
+				try:
+					response = connection.getresponse()
+				except socket.timeout:
+					pass
+			return response					
+		else:
+			return connection.getresponse()
+
 	def getwork(self, data=None):
-		try:				
-			self.connection = self.ensure_connected(self.connection, self.proto, self.host, self.servers.timeout)[0]
+		try:
+			self.connection = self.ensure_connected(self.connection, self.proto, self.host)[0]
 			self.postdata['params'] = if_else(data, [data], [])
 			(self.connection, result) = self.request(self.connection, '/', self.headers, dumps(self.postdata))
 
@@ -158,7 +160,7 @@ class HttpTransport(Transport):
 		data = ''.join([result.header.encode('hex'), pack('III', long(result.time), long(result.difficulty), long(nonce)).encode('hex'), '000000800000000000000000000000000000000000000000000000000000000000000000000000000000000080020000'])
 		accepted = self.getwork(data)
 		if accepted != None:
-			self.servers.report(nonce, accepted)
+			self.servers.report(result.miner, nonce, accepted)
 
 	def long_poll_thread(self):
 		last_host = None
@@ -179,7 +181,7 @@ class HttpTransport(Transport):
 					if url == '': url = '/'
 				try:
 					if host != last_host: self.close_lp_connection()
-					self.lp_connection, changed = self.ensure_connected(self.lp_connection, proto, host, self.long_poll_timeout)
+					self.lp_connection, changed = self.ensure_connected(self.lp_connection, proto, host)
 					if changed:
 						say_line("LP connected to %s", self.servers.server_name())
 						last_host = host
@@ -215,14 +217,12 @@ class HttpTransport(Transport):
 			self.lp_connection.close()
 			self.lp_connection = None
 
-	def queue_work(self, work):
+	def queue_work(self, work, miner=None):
 		if work:
 			if not 'target' in work:
 				work['target'] = '0000000000000000000000000000000000000000000000000000ffff00000000'
 
-			self.servers.queue_work(self, work['data'], work['target'])
-		else:
-			self.servers.queue_work(self, work)
+			self.servers.queue_work(self, work['data'], work['target'], miner)
 
 	def detect_stratum(self):
 		work = self.getwork()

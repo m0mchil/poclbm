@@ -7,7 +7,6 @@ from struct import pack
 from threading import Thread
 from time import sleep, time
 from util import *
-import log
 import pyopencl as cl
 
 ADL_PRESENT = False
@@ -25,26 +24,22 @@ except ImportError:
 
 
 class BitcoinMiner():
-	def __init__(self, device, options, version, transport):
+	def __init__(self, device, options):
 		self.output_size = 0x100
 		self.options = options
-		self.version = version
+
 		(self.defines, self.rate_divisor, self.hashspace) = if_else(self.options.vectors, ('-DVECTORS', 500, 0x7FFFFFFF), ('', 1000, 0xFFFFFFFF))
 		self.defines += (' -DOUTPUT_SIZE=' + str(self.output_size))
 		self.defines += (' -DOUTPUT_MASK=' + str(self.output_size - 1))
 
 		self.device = device
-		self.options.rate = if_else(self.options.verbose, max(self.options.rate, 60), max(self.options.rate, 0.1))
-		self.options.askrate = max(self.options.askrate, 1)
-		self.options.askrate = min(self.options.askrate, 10)
 		self.options.frames = max(self.options.frames, 3)
 
-		self.update_time = False
+		self.update_time_counter = 1
 		self.share_count = [0, 0]
 		self.work_queue = Queue()
-		self.transport = transport(self)
-		log.verbose = self.options.verbose
-		log.quiet = self.options.quiet
+
+		self.update = True
 
 		if ADL_PRESENT:
 			self.adapterIndex = self.get_adapter_info()[self.options.device].iAdapterIndex
@@ -52,28 +47,10 @@ class BitcoinMiner():
 	def start(self):
 		self.should_stop = False
 		Thread(target=self.mining_thread).start()
-		self.transport.loop()
 
 	def stop(self, message = None):
 		if message: print '\n%s' % message
-		self.transport.stop()
 		self.should_stop = True
-
-	def say_status(self, rate, estimated_rate):
-		rate = Decimal(rate) / 1000
-		estimated_rate = Decimal(estimated_rate) / 1000
-		total_shares = self.share_count[1] + self.share_count[0]
-		total_shares_estimator = max(total_shares, total_shares, 1)
-		say_quiet('[%.03f MH/s (~%d MH/s)] [Rej: %d/%d (%.02f%%)]', (rate, round(estimated_rate), self.share_count[0], total_shares, float(self.share_count[0]) * 100 / total_shares_estimator))
-
-	def diff1_found(self, hash, target):
-		if self.options.verbose and target < 0xFFFF0000L:
-			say_line('checking %s <= %s', (hash, target))
-
-	def share_found(self, hash, accepted, is_block):
-		self.share_count[if_else(accepted, 1, 0)] += 1
-		if self.options.verbose or is_block:
-			say_line('%s%s, %s', (if_else(is_block, 'block ', ''), hash, if_else(accepted, 'accepted', '_rejected_')))
 
 	def mining_thread(self):
 		self.load_kernel()
@@ -141,8 +118,8 @@ class BitcoinMiner():
 
 			t = now - last_rated
 			if t > self.options.rate:
-				rate = int((threads_run / t) / self.rate_divisor)
-
+				self.rate = int((threads_run / t) / self.rate_divisor)
+				self.rate = Decimal(self.rate) / 1000
 				if accept_hist:
 					LAH = accept_hist.pop()
 					if LAH[1] != self.share_count[1]:
@@ -151,9 +128,10 @@ class BitcoinMiner():
 				while (accept_hist[0][0] < now - self.options.estimate):
 					accept_hist.pop(0)
 				new_accept = self.share_count[1] - accept_hist[0][1]
-				estimated_rate = Decimal(new_accept) * (work.targetQ) / min(int(now - start_time), self.options.estimate) / 1000
+				self.estimated_rate = Decimal(new_accept) * (work.targetQ) / min(int(now - start_time), self.options.estimate) / 1000
+				self.estimated_rate = Decimal(self.estimated_rate) / 1000
 
-				self.say_status(rate, estimated_rate)
+				self.servers.status_updated()
 				last_rated = now; threads_run = 0
 
 			queue.finish()
@@ -170,13 +148,14 @@ class BitcoinMiner():
 				result.job_id = work.job_id
 				result.extranonce2 = work.extranonce2
 				result.server = work.server
-				self.transport.put(result)
+				result.miner = self
+				self.servers.put(result)
 				output.fill(0)
 				cl.enqueue_write_buffer(queue, output_buffer, output)
 
-			if not self.update_time:
-				if nonces_left < (self.transport.timeout + 1) * global_threads * self.options.frames:
-					self.transport.update = True
+			if not self.servers.update_time:
+				if nonces_left < 3 * global_threads * self.options.frames:
+					self.update = True
 					nonces_left += 0xFFFFFFFFFFFF
 				elif 0xFFFFFFFFFFF < nonces_left < 0xFFFFFFFFFFFF:
 					say_line('warning: job finished, miner is idle')
@@ -186,6 +165,10 @@ class BitcoinMiner():
 				state2 = partial(state, work.merkle_end, work.time, work.difficulty, f)
 				calculateF(state, work.merkle_end, work.time, work.difficulty, f, state2)
 				last_n_time = now
+				self.update_time_counter += 1
+				if self.update_time_counter >= self.servers.max_update_time:
+					self.update = True
+					self.update_time_counter = 1
 
 	def load_kernel(self):
 		self.context = cl.Context([self.device], None, None)

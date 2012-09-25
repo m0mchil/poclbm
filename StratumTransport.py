@@ -16,13 +16,11 @@ import traceback
 
 
 BASE_DIFFICULTY = 0x00000000FFFF0000000000000000000000000000000000000000000000000000
-MAX_JOB_AGE = 60
 
 
 class StratumTransport(Transport):
 	def __init__(self, servers, server):
 		super(StratumTransport, self).__init__(servers, server)
-		self.servers.miner.update_time = True
 		self.handler = None
 		self.socket = None
 		self.channel_map = {}
@@ -40,12 +38,17 @@ class StratumTransport(Transport):
 	def loop(self):
 		super(StratumTransport, self).loop()
 
+		self.servers.update_time = True
+
 		while True:
 			if self.should_stop: return
 
-			if self.current_job and ((time() - self.current_job.time) > MAX_JOB_AGE):
-				self.current_job = self.refresh_job(self.current_job)
-				self.queue_work(self.current_job)
+			if self.current_job:
+				miner = self.servers.updatable_miner()
+				while miner:
+					self.current_job = self.refresh_job(self.current_job)
+					self.queue_work(self.current_job, miner)
+					miner = self.servers.updatable_miner()
 
 			if self.check_failback():
 				return True
@@ -59,7 +62,6 @@ class StratumTransport(Transport):
 
 					if not self.config.proxy:
 						self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-						self.socket.settimeout(self.servers.timeout)
 						self.socket.connect((address, int(port)))
 					else:
 						proxy_proto, user, pwd, proxy_host, name = self.config.proxy
@@ -141,7 +143,7 @@ class StratumTransport(Transport):
 			return '00' * self.extranonce2_size
 		return ('%0' + str(self.extranonce2_size * 2) +'x') % next_nonce
 
-	def queue_message(self, message):
+	def handle_message(self, message):
 
 		#Miner API
 		if 'method' in message:
@@ -206,12 +208,14 @@ class StratumTransport(Transport):
 			#check if this is submit confirmation (message id should be in submits dictionary)
 			#cleanup if necessary				
 			elif message['id'] in self.submits:
-				self.servers.report(self.submits[message['id']][0], message['result'])
+				miner, nonce, time = self.submits[message['id']]
+				accepted = message['result']
+				self.servers.report(miner, nonce, accepted)
 				del self.submits[message['id']]
 				if time() - self.last_submits_cleanup > 3600:
 					now = time()
 					for key, value in self.submits.items():
-						if now - value[1] > 3600:
+						if now - value[2] > 3600:
 							del self.submits[key]
 					self.last_submits_cleanup = now
 
@@ -246,7 +250,7 @@ class StratumTransport(Transport):
 		ntime = pack('I', long(result.time)).encode('hex')
 		hex_nonce = pack('I', long(nonce)).encode('hex')
 		id = job_id + hex_nonce
-		self.submits[id] = (nonce, time())
+		self.submits[id] = (result.miner, nonce, time())
 		return self.send_message({'params': [user, job_id, extranonce2, ntime, hex_nonce], 'id': id, 'method': u'mining.submit'})
 
 	def send_message(self, message):
@@ -255,7 +259,7 @@ class StratumTransport(Transport):
 			#self.handler.push(data)
 
 			#there is some bug with asyncore's send mechanism
-			#so we send data manually
+			#so we send data 'manually'
 			#note that this is not thread safe
 			if not self.handler:
 				return False
@@ -270,12 +274,9 @@ class StratumTransport(Transport):
 			self.stop()
 			
 
-	def queue_work(self, work):
-		if work:
-			target = ''.join(list(chunks('%064x' % self.pool_difficulty, 2))[::-1])
-			self.servers.queue_work(self, work.block_header, target, work.job_id, work.extranonce2)
-		else:
-			self.servers.queue_work(self, work)
+	def queue_work(self, work, miner=None):
+		target = ''.join(list(chunks('%064x' % self.pool_difficulty, 2))[::-1])
+		self.servers.queue_work(self, work.block_header, target, work.job_id, work.extranonce2, miner)
 
 class Handler(asynchat.async_chat):
 	def __init__(self, socket, map, parent):
@@ -299,5 +300,5 @@ class Handler(asynchat.async_chat):
 
 	def found_terminator(self):
 		message = loads(self.data)
-		self.parent.queue_message(message)
+		self.parent.handle_message(message)
 		self.data = ''

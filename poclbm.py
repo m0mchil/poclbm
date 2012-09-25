@@ -4,6 +4,7 @@ from BitcoinMiner import *
 from optparse import OptionGroup, OptionParser
 from time import sleep
 import Servers
+import log
 import pyopencl as cl
 import socket
 
@@ -32,7 +33,6 @@ parser.add_option('--proxy',          dest='proxy',      default='',          he
 group = OptionGroup(parser, "Miner Options")
 group.add_option('-r', '--rate',          dest='rate',       default=1,       help='hash rate display interval in seconds, default=1 (60 with --verbose)', type='float')
 group.add_option('-e', '--estimate',      dest='estimate',   default=900,     help='estimated rate time window in seconds, default 900 (15 minutes)', type='int')
-group.add_option('-a', '--askrate',       dest='askrate',    default=5,       help='how many seconds between getwork requests, default 5, max 10', type='int')
 group.add_option('-t', '--tolerance',     dest='tolerance',  default=2,       help='use fallback pool only after N consecutive connection errors, default 2', type='int')
 group.add_option('-b', '--failback',      dest='failback',   default=60,      help='attempt to fail back to the primary pool after N seconds, default 60', type='int')
 group.add_option('--cutoff_temp',         dest='cutoff_temp',default=95,      help='(requires github.com/mjmvisser/adl3) temperature at which to skip kernel execution, in C, default=95', type='float')
@@ -51,6 +51,14 @@ parser.add_option_group(group)
 
 (options, options.servers) = parser.parse_args()
 
+log.verbose = options.verbose
+log.quiet = options.quiet
+
+options.rate = if_else(options.verbose, max(options.rate, 60), max(options.rate, 0.1))
+
+options.version = VERSION
+
+options.max_update_time = 60
 
 platforms = cl.get_platforms()
 
@@ -70,6 +78,7 @@ if (options.device == -1 or options.device >= len(devices)):
 		print '[%d]\t%s' % (i, devices[i].name)
 	sys.exit()
 
+servers = None
 miner = None
 try:
 	#init adl
@@ -82,12 +91,17 @@ try:
 		pass
 	#end init adl
 
-	miner = BitcoinMiner(devices[options.device], options, VERSION, Servers.Servers)
+	servers = Servers.Servers(options)
+
+	miner = BitcoinMiner(devices[options.device], options)
+	servers.add_miner(miner)
 	miner.start()
+	servers.loop()
 except KeyboardInterrupt:
 	print '\nbye'
 finally:
 	if miner: miner.stop()
+	if servers: servers.stop()
 
 	#adl shutdown
 	try:
