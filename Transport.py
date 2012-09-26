@@ -9,13 +9,13 @@ class Transport(object):
 		self.server = server
 		self.proto, self.user, self.pwd, self.host, self.name = server[:5]
 		self.result_queue = Queue()
-		self.config = servers.config
+		self.options = servers.options
 
 	def loop(self):
 		self.should_stop = False
 		self.last_failback = time()
 
 	def check_failback(self):
-		if self.servers.server_index != 0 and time() - self.last_failback > self.config.failback:
+		if self.servers.server_index != 0 and time() - self.last_failback > self.options.failback:
 			self.stop()
 			return True

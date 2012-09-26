@@ -8,6 +8,15 @@ import log
 import pyopencl as cl
 import socket
 
+def tokenize(option, name, cast=int):
+	if option:
+		try:
+			return [cast(x) for x in option.split(',')]
+		except ValueError:
+			log.say_exception('Invalid %s(s) specified: %s\n\n' % (name, option))
+			sys.exit()
+	return []
+
 try:
 	from adl3 import ADL_Main_Control_Create, ADL_Main_Memory_Alloc, ADL_Main_Control_Destroy, ADL_OK
 except ImportError:
@@ -19,6 +28,7 @@ def socketwrap(family=socket.AF_INET, type=socket.SOCK_STREAM, proto=0):
 	sockobj = realsocket(family, type, proto)
 	sockobj.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
 	sockobj.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+	sockobj.settimeout(5)
 	return sockobj
 socket.socket = socketwrap
 
@@ -40,13 +50,13 @@ group.add_option('--cutoff_interval',     dest='cutoff_interval',default=0.01, h
 group.add_option('--no-server-failbacks', dest='nsf',        action='store_true', help='disable using failback hosts provided by server')
 parser.add_option_group(group)
 
-group = OptionGroup(parser, "Kernel Options")
+group = OptionGroup(parser, "OpenCL Options", "Every option except 'platform' can be specified as a comma separated list.")
 group.add_option('-p', '--platform', dest='platform',   default=-1,          help='use platform by id', type='int')
-group.add_option('-d', '--device',   dest='device',     default=-1,          help='use device by id, by default asks for device', type='int')
-group.add_option('-w', '--worksize', dest='worksize',   default=-1,          help='work group size, default is maximum returned by opencl', type='int')
-group.add_option('-f', '--frames',   dest='frames',     default=30,          help='will try to bring single kernel execution to 1/frames seconds, default=30, increase this for less desktop lag', type='int')
-group.add_option('-s', '--sleep',    dest='frameSleep', default=0,           help='sleep per frame in seconds, default 0', type='float')
-group.add_option('-v', '--vectors',  dest='vectors',    action='store_true', help='use vectors')
+group.add_option('-d', '--device',   dest='device',     default=[],          help='device ID, by default will use all GPU devices')
+group.add_option('-w', '--worksize', dest='worksize',   default=[],          help='work group size, default is maximum returned by OpenCL')
+group.add_option('-f', '--frames',   dest='frames',     default=[],          help='will try to bring single kernel execution to 1/frames seconds, default=30, increase this for less desktop lag')
+group.add_option('-s', '--sleep',    dest='frameSleep', default=[],          help='sleep per frame in seconds, default 0')
+group.add_option('-v', '--vectors',  dest='vectors',    default=[],          help='use vectors, default false')
 parser.add_option_group(group)
 
 (options, options.servers) = parser.parse_args()
@@ -72,14 +82,38 @@ if options.platform == -1:
 	options.platform = 0
 
 devices = platforms[options.platform].get_devices()
-if (options.device == -1 or options.device >= len(devices)):
-	print 'No device specified or device not found, use -d to specify one of the following\n'
+
+options.device = tokenize(options.device, 'device')
+options.worksize = tokenize(options.worksize, 'worksize')
+options.frames = tokenize(options.frames, 'frames')
+options.frameSleep = tokenize(options.frameSleep, 'frameSleep', float)
+options.vectors = tokenize(options.vectors, 'vectors', bool)
+
+if not options.device:
 	for i in xrange(len(devices)):
 		print '[%d]\t%s' % (i, devices[i].name)
-	sys.exit()
+	print '\nNo devices specified, using all GPU devices\n'
+
+miners = [
+	BitcoinMiner(i, options)
+	for i in xrange(len(devices))
+	if (
+		(not options.device and devices[i].type == cl.device_type.GPU) or
+		(i in options.device)
+	)
+]
+
+for i in xrange(len(miners)):
+	if i < len(options.worksize):
+		miners[i].worksize = options.worksize[i]
+	if i < len(options.frames):
+		miners[i].frames = options.frames[i]
+	if i < len(options.frameSleep):
+		miners[i].frameSleep = options.frameSleep[i]
+	if i < len(options.vectors):
+		miners[i].vectors = options.vectors[i]
 
 servers = None
-miner = None
 try:
 	#init adl
 	try:
@@ -93,14 +127,16 @@ try:
 
 	servers = Servers.Servers(options)
 
-	miner = BitcoinMiner(devices[options.device], options)
-	servers.add_miner(miner)
-	miner.start()
+	for miner in miners:
+		servers.add_miner(miner)
+		miner.start()
+
 	servers.loop()
 except KeyboardInterrupt:
 	print '\nbye'
 finally:
-	if miner: miner.stop()
+	for miner in miners:
+		miner.stop()
 	if servers: servers.stop()
 
 	#adl shutdown

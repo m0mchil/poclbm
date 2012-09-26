@@ -7,13 +7,13 @@ import StratumTransport
 import log
 
 class Servers(object):
-	def __init__(self, config):
+	def __init__(self, options):
 		self.lock = RLock()
 		self.miners = []
-		self.config = config
+		self.options = options
 		self.last_work = 0
 		self.update_time = True
-		self.max_update_time = config.max_update_time
+		self.max_update_time = options.max_update_time
 
 		self.backup_server_index = 1
 		self.errors = 0
@@ -23,7 +23,7 @@ class Servers(object):
 		self.save_server = None
 		self.server_map = {}
 
-		self.user_agent = 'poclbm/' + config.version
+		self.user_agent = 'poclbm/' + options.version
 
 		self.difficulty = 0
 		self.true_target = None
@@ -31,15 +31,16 @@ class Servers(object):
 
 		self.sent = {}
 
-		if self.config.proxy:
-			self.config.proxy = self.parse_server(self.config.proxy, False)
+		if self.options.proxy:
+			self.options.proxy = self.parse_server(self.options.proxy, False)
 
 		self.servers = []
-		for server in self.config.servers:
+		for server in self.options.servers:
 			try:
 				self.servers.append(self.parse_server(server))
-			except ValueError as e:
-				say_line(str(e))
+			except ValueError:
+				if self.options.verbose:
+					say_exception()
 				say_line("Ignored invalid server entry: %s", server)
 				continue
 
@@ -111,9 +112,9 @@ class Servers(object):
 				continue
 
 			self.errors += 1
-			say_line('IO errors - %s, tolerance %s', (self.errors, self.config.tolerance))
+			say_line('IO errors - %s, tolerance %s', (self.errors, self.options.tolerance))
 
-			if self.errors > self.config.tolerance:
+			if self.errors > self.options.tolerance:
 				self.errors = 0
 				if self.backup_server_index >= len(self.servers):
 					say_line("No more backup pools left. Using primary and starting over.")
@@ -176,7 +177,7 @@ class Servers(object):
 			if result.nonce[i]:
 				h = hash(result.state, result.merkle_end, result.time, result.difficulty, result.nonce[i])
 				if h[7] != 0:
-					say_line('Verification failed, check hardware!')
+					say_line('Verification failed, check hardware! (%s)', (result.miner.id()))
 				else:
 					self.diff1_found(bytereverse(h[6]), result.target[6])
 					if belowOrEquals(h[:7], result.target[:7]):
@@ -187,7 +188,7 @@ class Servers(object):
 						return send_callback(result, result.nonce[i])
 
 	def diff1_found(self, hash, target):
-		if self.config.verbose and target < 0xFFFF0000L:
+		if self.options.verbose and target < 0xFFFF0000L:
 			say_line('checking %s <= %s', (hash, target))
 
 	def status_updated(self):
@@ -202,8 +203,8 @@ class Servers(object):
 		is_block, hash6, hash5 = self.sent[nonce]
 		miner.share_count[if_else(accepted, 1, 0)] += 1
 		hash = if_else(is_block, hash6 + hash5, hash6)
-		if self.config.verbose or is_block:
-			say_line('%s%s, %s', (if_else(is_block, 'block ', ''), hash, if_else(accepted, 'accepted', '_rejected_')))
+		if self.options.verbose or is_block:
+			say_line('%s %s%s, %s', (miner.id(), if_else(is_block, 'block ', ''), hash, if_else(accepted, 'accepted', '_rejected_')))
 		del self.sent[nonce]
 
 	def set_server_by_index(self, server_index):

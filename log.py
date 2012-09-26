@@ -1,6 +1,7 @@
 from datetime import datetime
 from threading import RLock
 import sys
+import traceback
 
 quiet = False
 verbose = False
@@ -23,6 +24,12 @@ def say_line(format, args=()):
     if not verbose:
         format = '%s, %s\n' % (datetime.now().strftime(TIME_FORMAT), format)
     say(format, args)
-    
+
+def say_exception(message=''):
+	type, value, tb = sys.exc_info()
+	say_line(message + ' %s', str(value))
+	if verbose:
+		traceback.print_exception(type, value, tb)
+
 def say_quiet(format, args=()):
     say(format, args, True)

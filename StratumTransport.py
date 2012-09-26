@@ -11,7 +11,6 @@ import asynchat
 import asyncore
 import socket
 import socks
-import traceback
 #import ssl
 
 
@@ -58,13 +57,13 @@ class StratumTransport(Transport):
 					#socket = ssl.wrap_socket(socket)
 					host = self.server[3]
 					address, port = host.split(':', 1)
-					
 
-					if not self.config.proxy:
+
+					if not self.options.proxy:
 						self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 						self.socket.connect((address, int(port)))
 					else:
-						proxy_proto, user, pwd, proxy_host, name = self.config.proxy
+						proxy_proto, user, pwd, proxy_host, name = self.options.proxy
 						proxy_port = 9050
 						proxy_host = proxy_host.split(':')
 						if len(proxy_host) > 1:
@@ -81,8 +80,8 @@ class StratumTransport(Transport):
 						self.socket.setproxy(proxy_type, proxy_host, proxy_port, True, user, pwd)
 						try:
 							self.socket.connect((address, int(port)))
-						except socks.Socks5AuthError as e:
-							say_line('Proxy error: %s', str(e))
+						except socks.Socks5AuthError:
+							say_exception('Proxy error:')
 							self.stop()
 
 					self.handler = Handler(self.socket, self.channel_map, self)
@@ -96,8 +95,8 @@ class StratumTransport(Transport):
 					elif not self.authorize():
 						self.stop()
 
-				except socket.error as e:
-					say_line(str(e))
+				except socket.error:
+					say_exception()
 					self.stop()
 					continue
 
@@ -206,9 +205,9 @@ class StratumTransport(Transport):
 				self.subscribed = True
 
 			#check if this is submit confirmation (message id should be in submits dictionary)
-			#cleanup if necessary				
+			#cleanup if necessary
 			elif message['id'] in self.submits:
-				miner, nonce, time = self.submits[message['id']]
+				miner, nonce, t = self.submits[message['id']]
 				accepted = message['result']
 				self.servers.report(miner, nonce, accepted)
 				del self.submits[message['id']]
@@ -269,10 +268,9 @@ class StratumTransport(Transport):
 			return True
 		except AttributeError:
 			self.stop()
-		except Exception as e:
-			say_line(str(e))
+		except Exception:
+			say_exception()
 			self.stop()
-			
 
 	def queue_work(self, work, miner=None):
 		target = ''.join(list(chunks('%064x' % self.pool_difficulty, 2))[::-1])
@@ -292,7 +290,7 @@ class Handler(asynchat.async_chat):
 
 	def handle_error(self):
 		type, value, trace = sys.exc_info()
-		say_line('%s', value)
+		say_exception()
 		self.parent.stop()
 
 	def collect_incoming_data(self, data):

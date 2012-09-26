@@ -24,16 +24,14 @@ except ImportError:
 
 
 class BitcoinMiner():
-	def __init__(self, device, options):
+	def __init__(self, device_index, options):
 		self.output_size = 0x100
 		self.options = options
 
-		(self.defines, self.rate_divisor, self.hashspace) = if_else(self.options.vectors, ('-DVECTORS', 500, 0x7FFFFFFF), ('', 1000, 0xFFFFFFFF))
-		self.defines += (' -DOUTPUT_SIZE=' + str(self.output_size))
-		self.defines += (' -DOUTPUT_MASK=' + str(self.output_size - 1))
-
-		self.device = device
-		self.options.frames = max(self.options.frames, 3)
+		self.device_index = device_index
+		self.device = cl.get_platforms()[options.platform].get_devices()[device_index]
+		self.device_name = self.device.name.strip('\r\n \x00\t')
+		self.frames = 30
 
 		self.update_time_counter = 1
 		self.share_count = [0, 0]
@@ -41,23 +39,34 @@ class BitcoinMiner():
 
 		self.update = True
 
+		self.worksize = self.frameSleep= self.rate = self.estimated_rate = 0
+		self.vectors = False
+
 		if ADL_PRESENT:
 			self.adapterIndex = self.get_adapter_info()[self.options.device].iAdapterIndex
+
+	def id(self):
+		return str(self.options.platform) + ':' + str(self.device_index) + ':' + self.device_name 
 
 	def start(self):
 		self.should_stop = False
 		Thread(target=self.mining_thread).start()
+		say_line('started OpenCL miner on platform %d, device %d (%s)', (self.options.platform, self.device_index, self.device_name))
 
 	def stop(self, message = None):
 		if message: print '\n%s' % message
 		self.should_stop = True
 
 	def mining_thread(self):
+		(self.defines, rate_divisor, hashspace) = if_else(self.vectors, ('-DVECTORS', 500, 0x7FFFFFFF), ('', 1000, 0xFFFFFFFF))
+		self.defines += (' -DOUTPUT_SIZE=' + str(self.output_size))
+		self.defines += (' -DOUTPUT_MASK=' + str(self.output_size - 1))
+
 		self.load_kernel()
-		frame = 1.0 / self.options.frames
-		unit = self.options.worksize * 256
+		frame = 1.0 / max(self.frames, 3)
+		unit = self.worksize * 256
 		global_threads = unit * 10
-		
+
 		queue = cl.CommandQueue(self.context)
 
 		start_time = last_rated_pace = last_rated = last_n_time = last_temperature = time()
@@ -69,21 +78,23 @@ class BitcoinMiner():
 		work = None
 		temperature = 0
 		while True:
-		        sleep(self.options.frameSleep)
 			if self.should_stop: return
+
+			sleep(self.frameSleep)
+
 			if (not work) or (not self.work_queue.empty()):
 				try:
 					work = self.work_queue.get(True, 1)
 				except Empty: continue
 				else:
 					if not work: continue
-					nonces_left = self.hashspace
+					nonces_left = hashspace
 					state = work.state
 					state2 = work.state2
 					f = work.f
 
 			if temperature < self.options.cutoff_temp:
-				self.miner.search(queue, (global_threads,), (self.options.worksize,),
+				self.miner.search(queue, (global_threads,), (self.worksize,),
 									state[0], state[1], state[2], state[3], state[4], state[5], state[6], state[7],
 									state2[1], state2[2], state2[3], state2[5], state2[6], state2[7],
 									pack('I', base),
@@ -109,16 +120,17 @@ class BitcoinMiner():
 
 			t = now - last_rated_pace
 			if t > 1:
-				rate = (threads_run_pace / t) / self.rate_divisor
+				rate = (threads_run_pace / t) / rate_divisor
 				last_rated_pace = now; threads_run_pace = 0
 				r = last_hash_rate / rate
 				if r < 0.9 or r > 1.1:
-					global_threads = max(unit * int((rate * frame * self.rate_divisor) / unit), unit)
+					global_threads = max(unit * int((rate * frame * rate_divisor) / unit), unit)
+					print self.id(), global_threads
 					last_hash_rate = rate
 
 			t = now - last_rated
 			if t > self.options.rate:
-				self.rate = int((threads_run / t) / self.rate_divisor)
+				self.rate = int((threads_run / t) / rate_divisor)
 				self.rate = Decimal(self.rate) / 1000
 				if accept_hist:
 					LAH = accept_hist.pop()
@@ -174,7 +186,7 @@ class BitcoinMiner():
 		self.context = cl.Context([self.device], None, None)
 		if (self.device.extensions.find('cl_amd_media_ops') != -1):
 			self.defines += ' -DBITALIGN'
-			if self.device.name.strip('\r\n \x00\t') in ['Cedar',
+			if self.device_name in ['Cedar',
 									'Redwood',
 									'Juniper',
 									'Cypress',
@@ -210,13 +222,13 @@ class BitcoinMiner():
 		finally:
 			if binary: binary.close()
 
-		if (self.options.worksize == -1):
-			self.options.worksize = self.miner.search.get_work_group_info(cl.kernel_work_group_info.WORK_GROUP_SIZE, self.device)
+		if not self.worksize:
+			self.worksize = self.miner.search.get_work_group_info(cl.kernel_work_group_info.WORK_GROUP_SIZE, self.device)
 
-	def get_temperature(self):	
+	def get_temperature(self):
 		temperature = ADLTemperature()
 		temperature.iSize = sizeof(temperature)
-	
+
 		if ADL_Overdrive5_Temperature_Get(self.adapterIndex, 0, byref(temperature)) == ADL_OK:
 			return temperature.iTemperature/1000.0
 		return 0

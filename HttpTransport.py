@@ -10,7 +10,6 @@ from util import *
 import httplib
 import socket
 import socks
-import traceback
 import urlparse
 
 
@@ -58,8 +57,7 @@ class HttpTransport(Transport):
 						self.servers.send(result, self.send_internal)
 				sleep(1)
 			except Exception:
-				say_line("Unexpected error:")
-				traceback.print_exc()
+				say_exception("Unexpected error:")
 				break
 
 	def ensure_connected(self, connection, proto, host):
@@ -69,12 +67,12 @@ class HttpTransport(Transport):
 		if proto == 'https': connector = httplib.HTTPSConnection
 		else: connector = httplib.HTTPConnection
 
-		if not self.config.proxy:
+		if not self.options.proxy:
 			return connector(host, strict=True), True
 
 		host, port = host.split(':')
 
-		proxy_proto, user, pwd, proxy_host, name = self.config.proxy
+		proxy_proto, user, pwd, proxy_host, name = self.options.proxy
 		proxy_port = 9050
 		proxy_host = proxy_host.split(':')
 		if len(proxy_host) > 1:
@@ -92,8 +90,8 @@ class HttpTransport(Transport):
 		connection.sock.setproxy(proxy_type, proxy_host, proxy_port, True, user, pwd)
 		try:
 			connection.sock.connect((host, int(port)))
-		except socks.Socks5AuthError as e:
-			say_line('Proxy error: %s', str(e))
+		except socks.Socks5AuthError:
+			say_exception('Proxy error:')
 			self.stop()
 		return connection, True
 
@@ -118,7 +116,7 @@ class HttpTransport(Transport):
 			self.servers.update_time = bool(response.getheader('X-Roll-NTime', ''))
 			hostList = response.getheader('X-Host-List', '')
 			self.stratum_header = response.getheader('x-stratum', '')
-			if (not self.config.nsf) and hostList: self.servers.add_servers(loads(hostList))
+			if (not self.options.nsf) and hostList: self.servers.add_servers(loads(hostList))
 			result = loads(response.read())
 			if result['error']:
 				say_line('server error: %s', result['error']['message'])
@@ -192,13 +190,12 @@ class HttpTransport(Transport):
 					if response:
 						(self.lp_connection, result) = response
 						self.queue_work(result['result'])
-						if self.config.verbose:
+						if self.options.verbose:
 							say_line('long poll: new block %s%s', (result['result']['data'][56:64], result['result']['data'][48:56]))
 				except Exception:
-					traceback.print_exc()
+					say_exception()
 				except (IOError, httplib.HTTPException, ValueError, socks.ProxyError, NotAuthorized, RPCError):
-					say_line('long poll: IO error')
-					#traceback.print_exc()
+					say_exception('long poll IO error')
 					self.close_lp_connection()
 					sleep(.5)
 
