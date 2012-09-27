@@ -74,6 +74,7 @@ class BitcoinMiner():
 		accept_hist = []
 		output = np.zeros(self.output_size + 1, np.uint32)
 		output_buffer = cl.Buffer(self.context, cl.mem_flags.WRITE_ONLY | cl.mem_flags.USE_HOST_PTR, hostbuf=output)
+		self.kernel.set_arg(20, output_buffer)
 
 		work = None
 		temperature = 0
@@ -93,14 +94,31 @@ class BitcoinMiner():
 					state2 = work.state2
 					f = work.f
 
+					self.kernel.set_arg(0, state[0])
+					self.kernel.set_arg(1, state[1])
+					self.kernel.set_arg(2, state[2])
+					self.kernel.set_arg(3, state[3])
+					self.kernel.set_arg(4, state[4])
+					self.kernel.set_arg(5, state[5])
+					self.kernel.set_arg(6, state[6])
+					self.kernel.set_arg(7, state[7])
+
+					self.kernel.set_arg(8, state2[1])
+					self.kernel.set_arg(9, state2[2])
+					self.kernel.set_arg(10, state2[3])
+					self.kernel.set_arg(11, state2[5])
+					self.kernel.set_arg(12, state2[6])
+					self.kernel.set_arg(13, state2[7])
+
+					self.kernel.set_arg(15, f[0])
+					self.kernel.set_arg(16, f[1])
+					self.kernel.set_arg(17, f[2])
+					self.kernel.set_arg(18, f[3])
+					self.kernel.set_arg(19, f[4])
+
 			if temperature < self.options.cutoff_temp:
-				self.miner.search(queue, (global_threads,), (self.worksize,),
-									state[0], state[1], state[2], state[3], state[4], state[5], state[6], state[7],
-									state2[1], state2[2], state2[3], state2[5], state2[6], state2[7],
-									pack('I', base),
-									f[0], f[1], f[2], f[3], f[4], # f[5], f[6], f[7],
-									output_buffer)
-				cl.enqueue_read_buffer(queue, output_buffer, output)
+				self.kernel.set_arg(14, pack('I', base))
+				cl.enqueue_nd_range_kernel(queue, self.kernel, (global_threads,), (self.worksize,))
 
 				nonces_left -= global_threads
 				threads_run_pace += global_threads
@@ -125,7 +143,6 @@ class BitcoinMiner():
 				r = last_hash_rate / rate
 				if r < 0.9 or r > 1.1:
 					global_threads = max(unit * int((rate * frame * rate_divisor) / unit), unit)
-					print self.id(), global_threads
 					last_hash_rate = rate
 
 			t = now - last_rated
@@ -146,6 +163,8 @@ class BitcoinMiner():
 				self.servers.status_updated()
 				last_rated = now; threads_run = 0
 
+			queue.finish()
+			cl.enqueue_read_buffer(queue, output_buffer, output)
 			queue.finish()
 
 			if output[self.output_size]:
@@ -176,6 +195,17 @@ class BitcoinMiner():
 				work.time = bytereverse(bytereverse(work.time) + 1)
 				state2 = partial(state, work.merkle_end, work.time, work.difficulty, f)
 				calculateF(state, work.merkle_end, work.time, work.difficulty, f, state2)
+				self.kernel.set_arg(8, state2[1])
+				self.kernel.set_arg(9, state2[2])
+				self.kernel.set_arg(10, state2[3])
+				self.kernel.set_arg(11, state2[5])
+				self.kernel.set_arg(12, state2[6])
+				self.kernel.set_arg(13, state2[7])
+				self.kernel.set_arg(15, f[0])
+				self.kernel.set_arg(16, f[1])
+				self.kernel.set_arg(17, f[2])
+				self.kernel.set_arg(18, f[3])
+				self.kernel.set_arg(19, f[4])
 				last_n_time = now
 				self.update_time_counter += 1
 				if self.update_time_counter >= self.servers.max_update_time:
@@ -210,20 +240,22 @@ class BitcoinMiner():
 		binary = None
 		try:
 			binary = open(cache_name, 'rb')
-			self.miner = cl.Program(self.context, [self.device], [binary.read()]).build(self.defines)
+			self.program = cl.Program(self.context, [self.device], [binary.read()]).build(self.defines)
 		except (IOError, cl.LogicError):
-			self.miner = cl.Program(self.context, kernel).build(self.defines)
+			self.program = cl.Program(self.context, kernel).build(self.defines)
 			if (self.defines.find('-DBFI_INT') != -1):
-				patchedBinary = patch(self.miner.binaries[0])
-				self.miner = cl.Program(self.context, [self.device], [patchedBinary]).build(self.defines)
+				patchedBinary = patch(self.program.binaries[0])
+				self.program = cl.Program(self.context, [self.device], [patchedBinary]).build(self.defines)
 			binaryW = open(cache_name, 'wb')
-			binaryW.write(self.miner.binaries[0])
+			binaryW.write(self.program.binaries[0])
 			binaryW.close()
 		finally:
 			if binary: binary.close()
 
+		self.kernel = self.program.search
+
 		if not self.worksize:
-			self.worksize = self.miner.search.get_work_group_info(cl.kernel_work_group_info.WORK_GROUP_SIZE, self.device)
+			self.worksize = self.kernel.get_work_group_info(cl.kernel_work_group_info.WORK_GROUP_SIZE, self.device)
 
 	def get_temperature(self):
 		temperature = ADLTemperature()
