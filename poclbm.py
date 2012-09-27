@@ -8,14 +8,14 @@ import log
 import pyopencl as cl
 import socket
 
-def tokenize(option, name, cast=int):
+def tokenize(option, name, default=[0], cast=int):
 	if option:
 		try:
 			return [cast(x) for x in option.split(',')]
 		except ValueError:
 			log.say_exception('Invalid %s(s) specified: %s\n\n' % (name, option))
 			sys.exit()
-	return []
+	return default
 
 try:
 	from adl3 import ADL_Main_Control_Create, ADL_Main_Memory_Alloc, ADL_Main_Control_Destroy, ADL_OK
@@ -83,11 +83,11 @@ if options.platform == -1:
 
 devices = platforms[options.platform].get_devices()
 
-options.device = tokenize(options.device, 'device')
+options.device = tokenize(options.device, 'device', [])
 options.worksize = tokenize(options.worksize, 'worksize')
-options.frames = tokenize(options.frames, 'frames')
-options.frameSleep = tokenize(options.frameSleep, 'frameSleep', float)
-options.vectors = tokenize(options.vectors, 'vectors', bool)
+options.frames = tokenize(options.frames, 'frames', [30])
+options.frameSleep = tokenize(options.frameSleep, 'frameSleep', cast=float)
+options.vectors = tokenize(options.vectors, 'vectors', [False], bool)
 
 if not options.device:
 	for i in xrange(len(devices)):
@@ -104,14 +104,10 @@ miners = [
 ]
 
 for i in xrange(len(miners)):
-	if i < len(options.worksize):
-		miners[i].worksize = options.worksize[i]
-	if i < len(options.frames):
-		miners[i].frames = options.frames[i]
-	if i < len(options.frameSleep):
-		miners[i].frameSleep = options.frameSleep[i]
-	if i < len(options.vectors):
-		miners[i].vectors = options.vectors[i]
+	miners[i].worksize = options.worksize[min(i, len(options.worksize) - 1)]
+	miners[i].frames = options.frames[min(i, len(options.frames) - 1)]
+	miners[i].frameSleep = options.frameSleep[min(i, len(options.frameSleep) - 1)]
+	miners[i].vectors = options.vectors[min(i, len(options.vectors) - 1)]
 
 servers = None
 try:
