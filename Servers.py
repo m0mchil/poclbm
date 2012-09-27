@@ -178,6 +178,7 @@ class Servers(object):
 				h = hash(result.state, result.merkle_end, result.time, result.difficulty, result.nonce[i])
 				if h[7] != 0:
 					say_line('Verification failed, check hardware! (%s)', (result.miner.id()))
+					return True # consume this particular result
 				else:
 					self.diff1_found(bytereverse(h[6]), result.target[6])
 					if belowOrEquals(h[:7], result.target[:7]):
