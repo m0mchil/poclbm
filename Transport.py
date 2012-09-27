@@ -19,3 +19,12 @@ class Transport(object):
 		if self.servers.server_index != 0 and time() - self.last_failback > self.options.failback:
 			self.stop()
 			return True
+
+	def process_result_queue(self):
+		while not self.result_queue.empty():
+			result = self.result_queue.get(False)
+			with self.servers.lock:
+				if not self.servers.send(result, self.send_internal):
+					self.result_queue.put(result)
+					self.stop()
+					break

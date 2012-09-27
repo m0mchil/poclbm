@@ -101,13 +101,7 @@ class StratumTransport(Transport):
 					continue
 
 			with self.send_lock:
-				while not self.result_queue.empty():
-					result = self.result_queue.get(False)
-					#if not self.send(result):
-					if not self.servers.send(result, self.send_internal):
-						self.result_queue.put(result)
-						self.stop()
-						break
+				self.process_result_queue()
 			sleep(1)
 
 	def asyncore_thread(self):

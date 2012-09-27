@@ -51,10 +51,7 @@ class HttpTransport(Transport):
 						self.queue_work(work, miner)
 						miner = self.servers.updatable_miner()
 
-				while not self.result_queue.empty():
-					result = self.result_queue.get(False)
-					with self.servers.lock:
-						self.servers.send(result, self.send_internal)
+				self.process_result_queue()
 				sleep(1)
 			except Exception:
 				say_exception("Unexpected error:")
