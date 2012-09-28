@@ -135,7 +135,8 @@ class HttpTransport(Transport):
 					response = connection.getresponse()
 				except socket.timeout:
 					pass
-			return response					
+			connection.sock.settimeout(timeout)
+			return response
 		else:
 			return connection.getresponse()
 
@@ -148,6 +149,8 @@ class HttpTransport(Transport):
 			self.servers.connection_ok()
 
 			return result['result']
+		except Exception:
+			say_exception()
 		except (IOError, httplib.HTTPException, ValueError, socks.ProxyError, NotAuthorized, RPCError):
 			self.stop()
 
@@ -156,6 +159,7 @@ class HttpTransport(Transport):
 		accepted = self.getwork(data)
 		if accepted != None:
 			self.servers.report(result.miner, nonce, accepted)
+			return True
 
 	def long_poll_thread(self):
 		last_host = None
@@ -216,7 +220,7 @@ class HttpTransport(Transport):
 			if not 'target' in work:
 				work['target'] = '0000000000000000000000000000000000000000000000000000ffff00000000'
 
-			self.servers.queue_work(self, work['data'], work['target'], miner)
+			self.servers.queue_work(self, work['data'], work['target'], miner=miner)
 
 	def detect_stratum(self):
 		work = self.getwork()
