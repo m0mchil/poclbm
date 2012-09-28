@@ -192,13 +192,14 @@ class Servers(object):
 		if self.options.verbose and target < 0xFFFF0000L:
 			say_line('checking %s <= %s', (hash, target))
 
-	def status_updated(self):
-		rate = sum([m.rate for m in self.miners])
-		estimated_rate = sum([m.estimated_rate for m in self.miners])
-		rejected_shares = sum([m.share_count[0] for m in self.miners])
-		total_shares = rejected_shares + sum([m.share_count[1] for m in self.miners])
+	def status_updated(self, miner):
+		verbose = self.options.verbose
+		rate = if_else(verbose, miner.rate, sum([m.rate for m in self.miners]))
+		estimated_rate = if_else(verbose, miner.estimated_rate, sum([m.estimated_rate for m in self.miners]))
+		rejected_shares = if_else(verbose, miner.share_count[0], sum([m.share_count[0] for m in self.miners]))
+		total_shares = rejected_shares + if_else(verbose, miner.share_count[1], sum([m.share_count[1] for m in self.miners]))
 		total_shares_estimator = max(total_shares, 1)
-		say_quiet('[%.03f MH/s (~%d MH/s)] [Rej: %d/%d (%.02f%%)]', (rate, round(estimated_rate), rejected_shares, total_shares, float(rejected_shares) * 100 / total_shares_estimator))
+		say_quiet('%s[%.03f MH/s (~%d MH/s)] [Rej: %d/%d (%.02f%%)]', (if_else(verbose, miner.id()+' ', '') , rate, round(estimated_rate), rejected_shares, total_shares, float(rejected_shares) * 100 / total_shares_estimator))
 
 	def report(self, miner, nonce, accepted):
 		is_block, hash6, hash5 = self.sent[nonce]
@@ -235,7 +236,7 @@ class Servers(object):
 					self.miners[i].update = True
 			miner.work_queue.put(work)
 			if work:
-				self.update = False; self.last_work = time()
+				miner.update = False; self.last_work = time()
 				if self.last_block != work.header[25:29]:
 					self.last_block = work.header[25:29]
 					self.clear_result_queue(server)
