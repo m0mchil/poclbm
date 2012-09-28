@@ -45,18 +45,24 @@ group.add_option('-r', '--rate',          dest='rate',       default=1,       he
 group.add_option('-e', '--estimate',      dest='estimate',   default=900,     help='estimated rate time window in seconds, default 900 (15 minutes)', type='int')
 group.add_option('-t', '--tolerance',     dest='tolerance',  default=2,       help='use fallback pool only after N consecutive connection errors, default 2', type='int')
 group.add_option('-b', '--failback',      dest='failback',   default=60,      help='attempt to fail back to the primary pool after N seconds, default 60', type='int')
-group.add_option('--cutoff_temp',         dest='cutoff_temp',default=95,      help='(requires github.com/mjmvisser/adl3) temperature at which to skip kernel execution, in C, default=95', type='float')
-group.add_option('--cutoff_interval',     dest='cutoff_interval',default=0.01, help='(requires adl3) how long to not execute calculations if CUTOFF_TEMP is reached, in seconds, default=0.01', type='float')
 group.add_option('--no-server-failbacks', dest='nsf',        action='store_true', help='disable using failback hosts provided by server')
 parser.add_option_group(group)
 
-group = OptionGroup(parser, "OpenCL Options", "Every option except 'platform' can be specified as a comma separated list.")
+group = OptionGroup(parser,
+	"GPU Options",
+	"Every option except 'platform' and 'vectors' can be specified as a comma separated list. "
+	"If there aren't enough entries specified, the last available is used. "
+	"Use --vv to specify per-device vectors usage."
+)
 group.add_option('-p', '--platform', dest='platform',   default=-1,          help='use platform by id', type='int')
 group.add_option('-d', '--device',   dest='device',     default=[],          help='device ID, by default will use all GPU devices')
 group.add_option('-w', '--worksize', dest='worksize',   default=[],          help='work group size, default is maximum returned by OpenCL')
 group.add_option('-f', '--frames',   dest='frames',     default=[],          help='will try to bring single kernel execution to 1/frames seconds, default=30, increase this for less desktop lag')
 group.add_option('-s', '--sleep',    dest='frameSleep', default=[],          help='sleep per frame in seconds, default 0')
-group.add_option('-v', '--vectors',  dest='vectors',    default=[],          help='use vectors, default false')
+group.add_option('--vv',             dest='vectors',    default=[],          help='use vectors, default false')
+group.add_option('-v', '--vectors',  dest='old_vectors',action='store_true', help='use vectors')
+group.add_option('--cutoff_temp',    dest='cutoff_temp',default=[],          help='(requires github.com/mjmvisser/adl3) temperature at which to skip kernel execution, in C, default=95')
+group.add_option('--cutoff_interval',dest='cutoff_interval',default=[],      help='(requires adl3) how long to not execute calculations if CUTOFF_TEMP is reached, in seconds, default=0.01')
 parser.add_option_group(group)
 
 (options, options.servers) = parser.parse_args()
@@ -87,7 +93,9 @@ options.device = tokenize(options.device, 'device', [])
 options.worksize = tokenize(options.worksize, 'worksize')
 options.frames = tokenize(options.frames, 'frames', [30])
 options.frameSleep = tokenize(options.frameSleep, 'frameSleep', cast=float)
-options.vectors = tokenize(options.vectors, 'vectors', [False], bool)
+options.vectors = if_else(options.old_vectors, [True], tokenize(options.vectors, 'vectors', [False], bool))
+options.cutoff_temp = tokenize(options.cutoff_temp, 'cutoff_temp', [95], float)
+options.cutoff_interval = tokenize(options.cutoff_interval, 'cutoff_interval', [0.01], float)
 
 if not options.device:
 	for i in xrange(len(devices)):
@@ -108,6 +116,8 @@ for i in xrange(len(miners)):
 	miners[i].frames = options.frames[min(i, len(options.frames) - 1)]
 	miners[i].frameSleep = options.frameSleep[min(i, len(options.frameSleep) - 1)]
 	miners[i].vectors = options.vectors[min(i, len(options.vectors) - 1)]
+	miners[i].cutoff_temp = options.cutoff_temp[min(i, len(options.cutoff_temp) - 1)]
+	miners[i].cutoff_interval = options.cutoff_interval[min(i, len(options.cutoff_interval) - 1)]	
 
 servers = None
 try:

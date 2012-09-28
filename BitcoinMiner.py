@@ -4,7 +4,7 @@ from hashlib import md5
 from log import *
 from sha256 import *
 from struct import pack
-from threading import Thread
+from threading import Thread, Lock
 from time import sleep, time
 from util import *
 import pyopencl as cl
@@ -15,10 +15,11 @@ try:
 	from adl3 import ADLPMActivity, ADL_Overdrive5_CurrentActivity_Get, \
 		ADLTemperature, ADL_Overdrive5_Temperature_Get, ADL_Adapter_NumberOfAdapters_Get, \
 		AdapterInfo, LPAdapterInfo, ADL_Adapter_AdapterInfo_Get, ADL_Adapter_ID_Get, \
-		ADLError, ADL_OK
+		ADL_OK
 	from ctypes import sizeof, byref, c_int, cast
 	from collections import namedtuple
 	ADL_PRESENT = True
+	adl_lock = Lock()
 except ImportError:
 	pass
 
@@ -42,11 +43,13 @@ class BitcoinMiner():
 		self.worksize = self.frameSleep= self.rate = self.estimated_rate = 0
 		self.vectors = False
 
-		if ADL_PRESENT:
-			self.adapterIndex = self.get_adapter_info()[self.options.device].iAdapterIndex
+		self.adapterIndex = None
+		if ADL_PRESENT and self.device.type == cl.device_type.GPU:
+			with adl_lock:
+				self.adapterIndex = self.get_adapter_info()[self.device_index].iAdapterIndex
 
 	def id(self):
-		return str(self.options.platform) + ':' + str(self.device_index) + ':' + self.device_name 
+		return str(self.options.platform) + ':' + str(self.device_index) + ':' + self.device_name
 
 	def start(self):
 		self.should_stop = False
@@ -116,7 +119,7 @@ class BitcoinMiner():
 					self.kernel.set_arg(18, f[3])
 					self.kernel.set_arg(19, f[4])
 
-			if temperature < self.options.cutoff_temp:
+			if temperature < self.cutoff_temp:
 				self.kernel.set_arg(14, pack('I', base))
 				cl.enqueue_nd_range_kernel(queue, self.kernel, (global_threads,), (self.worksize,))
 
@@ -127,14 +130,15 @@ class BitcoinMiner():
 			else:
 				threads_run_pace = 0
 				last_rated_pace = time()
-				sleep(self.options.cutoff_interval)
+				sleep(self.cutoff_interval)
 
 			now = time()
-			if ADL_PRESENT:
+			if self.adapterIndex:
 				t = now - last_temperature
-				if temperature >= self.options.cutoff_temp or t > 1:
+				if temperature >= self.cutoff_temp or t > 1:
 					last_temperature = now
-					temperature = self.get_temperature()
+					with adl_lock:
+						temperature = self.get_temperature()
 
 			t = now - last_rated_pace
 			if t > 1:
@@ -160,7 +164,7 @@ class BitcoinMiner():
 				self.estimated_rate = Decimal(new_accept) * (work.targetQ) / min(int(now - start_time), self.options.estimate) / 1000
 				self.estimated_rate = Decimal(self.estimated_rate) / 1000
 
-				self.servers.status_updated()
+				self.servers.status_updated(self)
 				last_rated = now; threads_run = 0
 
 			queue.finish()
@@ -185,11 +189,11 @@ class BitcoinMiner():
 				cl.enqueue_write_buffer(queue, output_buffer, output)
 
 			if not self.servers.update_time:
-				if nonces_left < 3 * global_threads * self.options.frames:
+				if nonces_left < 3 * global_threads * self.frames:
 					self.update = True
 					nonces_left += 0xFFFFFFFFFFFF
 				elif 0xFFFFFFFFFFF < nonces_left < 0xFFFFFFFFFFFF:
-					say_line('warning: job finished, miner is idle')
+					say_line('warning: job finished, %s is idle', self.id()) 
 					work = None
 			elif now - last_n_time > 1:
 				work.time = bytereverse(bytereverse(work.time) + 1)
@@ -269,12 +273,14 @@ class BitcoinMiner():
 		adapter_info = []
 		num_adapters = c_int(-1)
 		if ADL_Adapter_NumberOfAdapters_Get(byref(num_adapters)) != ADL_OK:
-			raise ADLError("ADL_Adapter_NumberOfAdapters_Get failed.")
+			say_line("ADL_Adapter_NumberOfAdapters_Get failed, cutoff temperature disabled for %s", self.id())
+			return
 
-		AdapterInfoArray = (AdapterInfo * num_adapters.value)() 
+		AdapterInfoArray = (AdapterInfo * num_adapters.value)()
 
 		if ADL_Adapter_AdapterInfo_Get(cast(AdapterInfoArray, LPAdapterInfo), sizeof(AdapterInfoArray)) != ADL_OK:
-			raise ADLError("ADL_Adapter_AdapterInfo_Get failed.")
+			say_line("ADL_Adapter_AdapterInfo_Get failed, cutoff temperature disabled for %s", self.id())
+			return
 
 		deviceAdapter = namedtuple('DeviceAdapter', ['AdapterIndex', 'AdapterID', 'BusNumber', 'UDID'])
 		devices = []
@@ -287,7 +293,8 @@ class BitcoinMiner():
 			adapterID = c_int(-1)
 
 			if ADL_Adapter_ID_Get(index, byref(adapterID)) != ADL_OK:
-				raise ADLError("ADL_Adapter_Active_Get failed.")
+				say_line("ADL_Adapter_Active_Get failed, cutoff temperature disabled for %s", self.id())
+				return
 
 			found = False
 			for device in devices:
