@@ -1,25 +1,27 @@
-from Queue import Queue, Empty
-from Transport import Transport
+from Source import Source
 from binascii import hexlify, unhexlify
 from hashlib import sha256
 from json import dumps, loads
-from log import *
+from log import say_exception, say_line
+from struct import pack
 from threading import Thread, Lock
 from time import sleep, time
-from util import *
+from util import chunks, Object
 import asynchat
 import asyncore
 import socket
 import socks
+
+
 #import ssl
 
 
 BASE_DIFFICULTY = 0x00000000FFFF0000000000000000000000000000000000000000000000000000
 
 
-class StratumTransport(Transport):
-	def __init__(self, servers, server):
-		super(StratumTransport, self).__init__(servers, server)
+class StratumSource(Source):
+	def __init__(self, switch, server):
+		super(StratumSource, self).__init__(switch, server)
 		self.handler = None
 		self.socket = None
 		self.channel_map = {}
@@ -27,7 +29,7 @@ class StratumTransport(Transport):
 		self.authorized = None
 		self.submits = {}
 		self.last_submits_cleanup = time()
-		self.pool_difficulty = BASE_DIFFICULTY
+		self.server_difficulty = BASE_DIFFICULTY
 		self.jobs = {}
 		self.current_job = None
 		self.extranonce = ''
@@ -35,19 +37,19 @@ class StratumTransport(Transport):
 		self.send_lock = Lock()
 
 	def loop(self):
-		super(StratumTransport, self).loop()
+		super(StratumSource, self).loop()
 
-		self.servers.update_time = True
+		self.switch.update_time = True
 
 		while True:
 			if self.should_stop: return
 
 			if self.current_job:
-				miner = self.servers.updatable_miner()
+				miner = self.switch.updatable_miner()
 				while miner:
 					self.current_job = self.refresh_job(self.current_job)
 					self.queue_work(self.current_job, miner)
-					miner = self.servers.updatable_miner()
+					miner = self.switch.updatable_miner()
 
 			if self.check_failback():
 				return True
@@ -63,7 +65,7 @@ class StratumTransport(Transport):
 						self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 						self.socket.connect((address, int(port)))
 					else:
-						proxy_proto, user, pwd, proxy_host, name = self.options.proxy
+						proxy_proto, user, pwd, proxy_host = self.options.proxy[:4]
 						proxy_port = 9050
 						proxy_host = proxy_host.split(':')
 						if len(proxy_host) > 1:
@@ -118,8 +120,8 @@ class StratumTransport(Transport):
 		coinbase_hash = sha256(sha256(unhexlify(coinbase)).digest()).digest()
 
 		merkle_root = coinbase_hash
-		for hash in j.merkle_branch:
-			merkle_root = sha256(sha256(merkle_root + unhexlify(hash)).digest()).digest()
+		for hash_ in j.merkle_branch:
+			merkle_root = sha256(sha256(merkle_root + unhexlify(hash_)).digest()).digest()
 		merkle_root_reversed = ''
 		for word in chunks(merkle_root, 4):
 			merkle_root_reversed += word[::-1]
@@ -166,7 +168,7 @@ class StratumTransport(Transport):
 				self.current_job = j
 
 				self.queue_work(j)
-				self.servers.connection_ok()
+				self.switch.connection_ok()
 
 			#mining.get_version
 			if message['method'] == 'mining.get_version':
@@ -176,16 +178,16 @@ class StratumTransport(Transport):
 			#mining.set_difficulty
 			elif message['method'] == 'mining.set_difficulty':
 				say_line("Setting new difficulty: %s", message['params'][0])
-				self.pool_difficulty = BASE_DIFFICULTY / message['params'][0]
+				self.server_difficulty = BASE_DIFFICULTY / message['params'][0]
 	
 			#client.reconnect
 			elif message['method'] == 'client.reconnect':
 				(hostname, port) = message['params'][:2]
-				server = self.servers[self.server_index]
+				server = self.switch[self.server_index]
 				say_line(server[4] + " asked us to reconnect to %s:%d", (hostname, port))
 				server[3] = hostname + ':' + str(port)
 				self.server = server
-				self.servers[self.server_index] = server
+				self.switch[self.server_index] = server
 				self.handler.close()
 
 		#responses to server API requests
@@ -201,9 +203,9 @@ class StratumTransport(Transport):
 			#check if this is submit confirmation (message id should be in submits dictionary)
 			#cleanup if necessary
 			elif message['id'] in self.submits:
-				miner, nonce, t = self.submits[message['id']]
+				miner, nonce = self.submits[message['id']][:2]
 				accepted = message['result']
-				self.servers.report(miner, nonce, accepted)
+				self.switch.report(miner, nonce, accepted)
 				del self.submits[message['id']]
 				if time() - self.last_submits_cleanup > 3600:
 					now = time()
@@ -242,9 +244,9 @@ class StratumTransport(Transport):
 		extranonce2 = result.extranonce2
 		ntime = pack('I', long(result.time)).encode('hex')
 		hex_nonce = pack('I', long(nonce)).encode('hex')
-		id = job_id + hex_nonce
-		self.submits[id] = (result.miner, nonce, time())
-		return self.send_message({'params': [user, job_id, extranonce2, ntime, hex_nonce], 'id': id, 'method': u'mining.submit'})
+		id_ = job_id + hex_nonce
+		self.submits[id_] = (result.miner, nonce, time())
+		return self.send_message({'params': [user, job_id, extranonce2, ntime, hex_nonce], 'id': id_, 'method': u'mining.submit'})
 
 	def send_message(self, message):
 		data = dumps(message) + '\n'
@@ -267,12 +269,12 @@ class StratumTransport(Transport):
 			self.stop()
 
 	def queue_work(self, work, miner=None):
-		target = ''.join(list(chunks('%064x' % self.pool_difficulty, 2))[::-1])
-		self.servers.queue_work(self, work.block_header, target, work.job_id, work.extranonce2, miner)
+		target = ''.join(list(chunks('%064x' % self.server_difficulty, 2))[::-1])
+		self.switch.queue_work(self, work.block_header, target, work.job_id, work.extranonce2, miner)
 
 class Handler(asynchat.async_chat):
-	def __init__(self, socket, map, parent):
-		asynchat.async_chat.__init__(self, socket, map)
+	def __init__(self, socket, map_, parent):
+		asynchat.async_chat.__init__(self, socket, map_)
 		self.parent = parent
 		self.data = ''
 		self.set_terminator('\n')
@@ -283,7 +285,6 @@ class Handler(asynchat.async_chat):
 		self.parent.socket = None
 
 	def handle_error(self):
-		type, value, trace = sys.exc_info()
 		say_exception()
 		self.parent.stop()
 

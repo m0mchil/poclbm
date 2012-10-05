@@ -1,66 +1,130 @@
-from Queue import Queue, Empty
-from decimal import Decimal
+from Miner import Miner
+from Queue import Empty
 from hashlib import md5
-from log import *
-from sha256 import *
+from log import say_line
+from sha256 import partial, calculateF
 from struct import pack
-from threading import Thread, Lock
+from threading import Lock
 from time import sleep, time
-from util import *
-import pyopencl as cl
+from util import if_else, uint32, Object, bytereverse, patch
+import numpy as np
+import sys
 
-ADL_PRESENT = False
+
+PYOPENCL = False
+OPENCL = False
+ADL = False
+
 
 try:
-	from adl3 import ADLPMActivity, ADL_Overdrive5_CurrentActivity_Get, \
-		ADLTemperature, ADL_Overdrive5_Temperature_Get, ADL_Adapter_NumberOfAdapters_Get, \
-		AdapterInfo, LPAdapterInfo, ADL_Adapter_AdapterInfo_Get, ADL_Adapter_ID_Get, \
-		ADL_OK
-	from ctypes import sizeof, byref, c_int, cast
-	from collections import namedtuple
-	ADL_PRESENT = True
-	adl_lock = Lock()
+	import pyopencl as cl
+	PYOPENCL = True
 except ImportError:
-	pass
+	print '\nNo PyOpenCL\n'
+
+if PYOPENCL:
+	try:
+		platforms = cl.get_platforms()
+		if len(platforms):
+			OPENCL = True
+		else:
+			print '\nNo OpenCL platforms\n'
+	except Exception:
+		print '\nNo OpenCL\n'
+
+if OPENCL:
+	try:
+		from adl3 import ADL_Main_Control_Create, ADL_Main_Memory_Alloc, ADL_Main_Control_Destroy, \
+			ADLTemperature, ADL_Overdrive5_Temperature_Get, ADL_Adapter_NumberOfAdapters_Get, \
+			AdapterInfo, LPAdapterInfo, ADL_Adapter_AdapterInfo_Get, ADL_Adapter_ID_Get, \
+			ADL_OK
+		from ctypes import sizeof, byref, c_int, cast
+		from collections import namedtuple
+		if ADL_Main_Control_Create(ADL_Main_Memory_Alloc, 1) != ADL_OK:
+			print "\nCouldn't initialize ADL interface.\n"
+		else:
+			ADL = True
+			adl_lock = Lock()
+	except ImportError:
+		print '\nWARNING: no adl3 module found (github.com/mjmvisser/adl3), temperature control is disabled\n'
+else:
+	print "\nNot using OpenCL\n"
+
+def shutdown():
+	if ADL:
+		ADL_Main_Control_Destroy()
 
 
-class BitcoinMiner():
+def initialize(options):
+	if not OPENCL or options.no_ocl:
+		return []
+
+	platforms = cl.get_platforms()
+
+	if options.platform >= len(platforms) or (options.platform == -1 and len(platforms) > 1):
+		print 'Wrong platform or more than one OpenCL platforms found, use --platform to select one of the following\n'
+		for i in xrange(len(platforms)):
+			print '[%d]\t%s' % (i, platforms[i].name)
+		sys.exit()
+
+	if options.platform == -1:
+		options.platform = 0
+
+	devices = platforms[options.platform].get_devices()
+
+	if not options.device:
+		for i in xrange(len(devices)):
+			print '[%d]\t%s' % (i, devices[i].name)
+		print '\nNo devices specified, using all GPU devices\n'
+
+	miners = [
+		OpenCLMiner(i, options)
+		for i in xrange(len(devices))
+		if (
+			(not options.device and devices[i].type == cl.device_type.GPU) or
+			(i in options.device)
+		)
+	]
+
+	for i in xrange(len(miners)):
+		miners[i].worksize = options.worksize[min(i, len(options.worksize) - 1)]
+		miners[i].frames = options.frames[min(i, len(options.frames) - 1)]
+		miners[i].frameSleep = options.frameSleep[min(i, len(options.frameSleep) - 1)]
+		miners[i].vectors = options.vectors[min(i, len(options.vectors) - 1)]
+		miners[i].cutoff_temp = options.cutoff_temp[min(i, len(options.cutoff_temp) - 1)]
+		miners[i].cutoff_interval = options.cutoff_interval[min(i, len(options.cutoff_interval) - 1)]
+	return miners
+
+
+class OpenCLMiner(Miner):
 	def __init__(self, device_index, options):
+		super(OpenCLMiner, self).__init__(device_index, options)
 		self.output_size = 0x100
-		self.options = options
 
-		self.device_index = device_index
 		self.device = cl.get_platforms()[options.platform].get_devices()[device_index]
 		self.device_name = self.device.name.strip('\r\n \x00\t')
 		self.frames = 30
-
-		self.update_time_counter = 1
-		self.share_count = [0, 0]
-		self.work_queue = Queue()
-
-		self.update = True
 
 		self.worksize = self.frameSleep= self.rate = self.estimated_rate = 0
 		self.vectors = False
 
 		self.adapterIndex = None
-		if ADL_PRESENT and self.device.type == cl.device_type.GPU:
+		if ADL and self.device.type == cl.device_type.GPU:
 			with adl_lock:
 				self.adapterIndex = self.get_adapter_info()[self.device_index].iAdapterIndex
 
 	def id(self):
 		return str(self.options.platform) + ':' + str(self.device_index) + ':' + self.device_name
 
-	def start(self):
-		self.should_stop = False
-		Thread(target=self.mining_thread).start()
-		say_line('started OpenCL miner on platform %d, device %d (%s)', (self.options.platform, self.device_index, self.device_name))
-
-	def stop(self, message = None):
-		if message: print '\n%s' % message
-		self.should_stop = True
+	def nonce_generator(self, nonces):
+		for i in xrange(self.output_size):
+			if nonces[i]:
+				yield nonces[i]
+		
 
 	def mining_thread(self):
+		say_line('started OpenCL miner on platform %d, device %d (%s)', (self.options.platform, self.device_index, self.device_name))
+
 		(self.defines, rate_divisor, hashspace) = if_else(self.vectors, ('-DVECTORS', 500, 0x7FFFFFFF), ('', 1000, 0xFFFFFFFF))
 		self.defines += (' -DOUTPUT_SIZE=' + str(self.output_size))
 		self.defines += (' -DOUTPUT_MASK=' + str(self.output_size - 1))
@@ -72,9 +136,8 @@ class BitcoinMiner():
 
 		queue = cl.CommandQueue(self.context)
 
-		start_time = last_rated_pace = last_rated = last_n_time = last_temperature = time()
+		last_rated_pace = last_rated = last_n_time = last_temperature = time()
 		base = last_hash_rate = threads_run_pace = threads_run = 0
-		accept_hist = []
 		output = np.zeros(self.output_size + 1, np.uint32)
 		output_buffer = cl.Buffer(self.context, cl.mem_flags.WRITE_ONLY | cl.mem_flags.USE_HOST_PTR, hostbuf=output)
 		self.kernel.set_arg(20, output_buffer)
@@ -151,20 +214,7 @@ class BitcoinMiner():
 
 			t = now - last_rated
 			if t > self.options.rate:
-				self.rate = int((threads_run / t) / rate_divisor)
-				self.rate = Decimal(self.rate) / 1000
-				if accept_hist:
-					LAH = accept_hist.pop()
-					if LAH[1] != self.share_count[1]:
-						accept_hist.append(LAH)
-				accept_hist.append((now, self.share_count[1]))
-				while (accept_hist[0][0] < now - self.options.estimate):
-					accept_hist.pop(0)
-				new_accept = self.share_count[1] - accept_hist[0][1]
-				self.estimated_rate = Decimal(new_accept) * (work.targetQ) / min(int(now - start_time), self.options.estimate) / 1000
-				self.estimated_rate = Decimal(self.estimated_rate) / 1000
-
-				self.servers.status_updated(self)
+				self.update_rate(threads_run, t, work.targetQ, rate_divisor)
 				last_rated = now; threads_run = 0
 
 			queue.finish()
@@ -179,16 +229,16 @@ class BitcoinMiner():
 				result.difficulty = work.difficulty
 				result.target = work.target
 				result.state = np.array(state)
-				result.nonce = np.array(output)
+				result.nonces = np.array(output)
 				result.job_id = work.job_id
 				result.extranonce2 = work.extranonce2
 				result.server = work.server
 				result.miner = self
-				self.servers.put(result)
+				self.switch.put(result)
 				output.fill(0)
 				cl.enqueue_write_buffer(queue, output_buffer, output)
 
-			if not self.servers.update_time:
+			if not self.switch.update_time:
 				if nonces_left < 3 * global_threads * self.frames:
 					self.update = True
 					nonces_left += 0xFFFFFFFFFFFF
@@ -212,7 +262,7 @@ class BitcoinMiner():
 				self.kernel.set_arg(19, f[4])
 				last_n_time = now
 				self.update_time_counter += 1
-				if self.update_time_counter >= self.servers.max_update_time:
+				if self.update_time_counter >= self.switch.max_update_time:
 					self.update = True
 					self.update_time_counter = 1
 

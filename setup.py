@@ -1,25 +1,47 @@
-from distutils.core import setup
+#!/usr/bin/env python
+
+from detect import LINUX
+from distribute_setup import use_setuptools
+from setuptools import setup
+from version import VERSION
+use_setuptools()
+
+
 try:
-    import py2exe
+	import py2exe
 except ImportError:
-    py2exe = None
+	py2exe = None
 
-args = {}
-args['console'] = ['poclbm.py']
-args['data_files'] = ['phatk.cl', 'msvcp90.dll']
 
-if py2exe != None:
-    args.update({
-        # py2exe options
-        'options': {'py2exe':
-                      {'optimize': 2,
-                       'bundle_files': 2,
-                       'compressed': True,
-                       'dll_excludes': ['OpenCL.dll'],
-                       'excludes': ["Tkconstants", "Tkinter", "tcl"],
-                      },
-                  },
-        'zipfile': None,
-    })
+args = {
+    'name': 'poclbm',
+    'version': VERSION,
+    'description': 'Bitcoin miner in python',
+    'author': 'Momchil Georgiev',
+    'author_email': 'pishtov@gmail.com',
+    'url': 'https://github.com/m0mchil/poclbm/',
+    'install_requires': ['numpy', 'pyserial>=2.6'],
+    'scripts': ['poclbm.py'],
+    #'modules': ['BFLMiner', 'detect', 'GetworkSource', 'log', 'OpenCLMiner', 'sha256', 'socks', 'Source', 'StratumSource', 'Switch', 'util', 'version'],
+}
+
+if LINUX:
+	args['install_requires'].append('pyudev>=0.16')
+
+if py2exe:
+	args.update({
+		# py2exe options
+		'options': {'py2exe':
+						{'optimize': 2,
+						'bundle_files': 2,
+						'compressed': True,
+						'dll_excludes': ['OpenCL.dll'],
+						'excludes': ["Tkconstants", "Tkinter", "tcl"],
+						},
+					},
+		'console': ['poclbm.py'],
+		'data_files': ['phatk.cl', 'msvcp90.dll'],
+		'zipfile': None,
+	})
 
 setup(**args)

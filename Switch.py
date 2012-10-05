@@ -1,12 +1,17 @@
-from log import *
-from sha256 import *
-from time import time, sleep
-from util import if_else, Object
-import HttpTransport
-import StratumTransport
-import log
 
-class Servers(object):
+from log import say_exception, say_line, say_quiet
+from sha256 import sha256, STATE, partial, calculateF, hash
+from struct import pack, unpack
+from threading import RLock
+from time import time, sleep
+from util import if_else, Object, chunks, bytereverse, belowOrEquals
+import GetworkSource
+import StratumSource
+import log
+import numpy as np
+
+
+class Switch(object):
 	def __init__(self, options):
 		self.lock = RLock()
 		self.miners = []
@@ -23,7 +28,7 @@ class Servers(object):
 		self.save_server = None
 		self.server_map = {}
 
-		self.user_agent = 'poclbm/' + options.version
+		self.user_agent = 'digger/' + options.version
 
 		self.difficulty = 0
 		self.true_target = None
@@ -74,7 +79,7 @@ class Servers(object):
 
 	def add_miner(self, miner):
 		self.miners.append(miner)
-		miner.servers = self
+		miner.switch = self
 
 	def updatable_miner(self):
 		for miner in self.miners:
@@ -117,7 +122,7 @@ class Servers(object):
 			if self.errors > self.options.tolerance:
 				self.errors = 0
 				if self.backup_server_index >= len(self.servers):
-					say_line("No more backup pools left. Using primary and starting over.")
+					say_line("No more backup servers left. Using primary and starting over.")
 					new_server_index = 0
 					self.backup_server_index = 1
 				else:
@@ -145,18 +150,18 @@ class Servers(object):
 			data0 = np.zeros(64, np.uint32)
 			data0 = np.insert(data0, [0] * 16, unpack('IIIIIIIIIIIIIIII', binary_data[:64]))
 	
-			job.target      = np.array(unpack('IIIIIIII', target.decode('hex')), dtype=np.uint32)
-			job.header      = binary_data[:68]
+			job.target	  = np.array(unpack('IIIIIIII', target.decode('hex')), dtype=np.uint32)
+			job.header	  = binary_data[:68]
 			job.merkle_end  = np.uint32(unpack('I', binary_data[64:68])[0])
-			job.time        = np.uint32(unpack('I', binary_data[68:72])[0])
+			job.time		= np.uint32(unpack('I', binary_data[68:72])[0])
 			job.difficulty  = np.uint32(unpack('I', binary_data[72:76])[0])
-			job.state       = sha256(STATE, data0)
-			job.f           = np.zeros(8, np.uint32)
-			job.state2      = partial(job.state, job.merkle_end, job.time, job.difficulty, job.f)
-			job.targetQ     = 2**256 / int(''.join(list(chunks(target, 2))[::-1]), 16)
-			job.job_id      = job_id
+			job.state	   = sha256(STATE, data0)
+			job.f		   = np.zeros(8, np.uint32)
+			job.state2	  = partial(job.state, job.merkle_end, job.time, job.difficulty, job.f)
+			job.targetQ	 = 2**256 / int(''.join(list(chunks(target, 2))[::-1]), 16)
+			job.job_id	  = job_id
 			job.extranonce2 = extranonce2
-			job.server      = server
+			job.server	  = server
 	
 			calculateF(job.state, job.merkle_end, job.time, job.difficulty, job.f, job.state2)
 
@@ -173,24 +178,26 @@ class Servers(object):
 		self.true_target = np.array(unpack('IIIIIIII', true_target.decode('hex')), dtype=np.uint32)
 
 	def send(self, result, send_callback):
-		for i in xrange(result.miner.output_size):
-			if result.nonce[i]:
-				h = hash(result.state, result.merkle_end, result.time, result.difficulty, result.nonce[i])
-				if h[7] != 0:
-					say_line('Verification failed, check hardware! (%s)', (result.miner.id()))
-					return True # consume this particular result
-				else:
-					self.diff1_found(bytereverse(h[6]), result.target[6])
-					if belowOrEquals(h[:7], result.target[:7]):
-						is_block = belowOrEquals(h[:7], self.true_target[:7])
-						hash6 = pack('I', long(h[6])).encode('hex')
-						hash5 = pack('I', long(h[5])).encode('hex')
-						self.sent[result.nonce[i]] = (is_block, hash6, hash5)
-						return send_callback(result, result.nonce[i])
+		for nonce in result.miner.nonce_generator(result.nonces):
+			h = hash(result.state, result.merkle_end, result.time, result.difficulty, nonce)
+			if h[7] != 0:
+				hash6 = pack('I', long(h[6])).encode('hex')
+				say_line('Verification failed, check hardware! (%s, %s)', (result.miner.id(), hash6))
+				return True # consume this particular result
+			else:
+				self.diff1_found(bytereverse(h[6]), result.target[6])
+				if belowOrEquals(h[:7], result.target[:7]):
+					is_block = belowOrEquals(h[:7], self.true_target[:7])
+					hash6 = pack('I', long(h[6])).encode('hex')
+					hash5 = pack('I', long(h[5])).encode('hex')
+					self.sent[nonce] = (is_block, hash6, hash5)
+					if not send_callback(result, nonce):
+						return False
+		return True
 
-	def diff1_found(self, hash, target):
+	def diff1_found(self, hash_, target):
 		if self.options.verbose and target < 0xFFFF0000L:
-			say_line('checking %s <= %s', (hash, target))
+			say_line('checking %s <= %s', (hash_, target))
 
 	def status_updated(self, miner):
 		verbose = self.options.verbose
@@ -204,9 +211,9 @@ class Servers(object):
 	def report(self, miner, nonce, accepted):
 		is_block, hash6, hash5 = self.sent[nonce]
 		miner.share_count[if_else(accepted, 1, 0)] += 1
-		hash = if_else(is_block, hash6 + hash5, hash6)
+		hash_ = if_else(is_block, hash6 + hash5, hash6)
 		if self.options.verbose or is_block:
-			say_line('%s %s%s, %s', (miner.id(), if_else(is_block, 'block ', ''), hash, if_else(accepted, 'accepted', '_rejected_')))
+			say_line('%s %s%s, %s', (miner.id(), if_else(is_block, 'block ', ''), hash_, if_else(accepted, 'accepted', '_rejected_')))
 		del self.sent[nonce]
 
 	def set_server_by_index(self, server_index):
@@ -215,7 +222,8 @@ class Servers(object):
 
 	def set_server(self, server):
 		self.server = server
-		proto, user, pwd, host, name = server[:5]
+		user = server[1]
+		name = server[4]
 		#say_line('Setting server %s (%s @ %s)', (name, user, host))
 		say_line('Setting server (%s @ %s)', (user, name))
 		log.server = name + ' '
@@ -253,17 +261,19 @@ class Servers(object):
 			return None
 		if len(self.server) < 6:
 			if self.server[0] == 'stratum':
-				self.server = self.server + (StratumTransport.StratumTransport(self, self.server), )
+				self.server = self.server + (StratumSource.StratumSource(self, self.server), )
 			else:
-				http_server = HttpTransport.HttpTransport(self, self.server)
+				http_server = GetworkSource.GetworkSource(self, self.server)
 				say_line('checking for stratum...')
 
 				stratum_host = http_server.detect_stratum()
 				if stratum_host:
 					http_server.close_connection()
-					proto, user, pwd, old_host, name = self.server
+					user = self.server[1]
+					pwd = self.server[2]
+					name = self.server[4]
 					self.server = self.servers[self.server_index] = ('stratum', user, pwd, stratum_host, name)
-					self.server = self.server + (StratumTransport.StratumTransport(self, self.server), )
+					self.server = self.server + (StratumSource.StratumSource(self, self.server), )
 				else:
 					self.server = self.servers[self.server_index] = (self.server + (http_server, ))
 

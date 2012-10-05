@@ -1,37 +1,40 @@
-from Transport import Transport
+from Source import Source
 from base64 import b64encode
+from httplib import HTTPException
 from json import dumps, loads
-from log import *
-from sha256 import *
+from log import say_exception, say_line
+from struct import pack
 from threading import Thread
 from time import sleep, time
 from urlparse import urlsplit
-from util import *
+from util import if_else
 import httplib
 import socket
 import socks
-import urlparse
+
+
+
 
 
 class NotAuthorized(Exception): pass
 class RPCError(Exception): pass
 
-class HttpTransport(Transport):
-	def __init__(self, servers, server):
-		super(HttpTransport, self).__init__(servers, server)
+class GetworkSource(Source):
+	def __init__(self, switch, server):
+		super(GetworkSource, self).__init__(switch, server)
 		
 		self.connection = self.lp_connection = None
 		self.long_poll_timeout = 3600
 		self.max_redirects = 3
 
 		self.postdata = {'method': 'getwork', 'id': 'json'}
-		self.headers = {"User-Agent": self.servers.user_agent, "Authorization": 'Basic ' + b64encode('%s:%s' % (self.user, self.pwd)), "X-Mining-Extensions": 'hostlist midstate rollntime'}
+		self.headers = {"User-Agent": self.switch.user_agent, "Authorization": 'Basic ' + b64encode('%s:%s' % (self.user, self.pwd)), "X-Mining-Extensions": 'hostlist midstate rollntime'}
 		self.long_poll_url = ''
 
 		self.long_poll_active = False
 
 	def loop(self):
-		super(HttpTransport, self).loop()
+		super(GetworkSource, self).loop()
 
 		thread = Thread(target=self.long_poll_thread)
 		thread.daemon = True
@@ -44,12 +47,12 @@ class HttpTransport(Transport):
 				return True
 
 			try:
-				with self.servers.lock:
-					miner = self.servers.updatable_miner()
+				with self.switch.lock:
+					miner = self.switch.updatable_miner()
 					while miner:
 						work = self.getwork()
 						self.queue_work(work, miner)
-						miner = self.servers.updatable_miner()
+						miner = self.switch.updatable_miner()
 
 				self.process_result_queue()
 				sleep(1)
@@ -69,7 +72,7 @@ class HttpTransport(Transport):
 
 		host, port = host.split(':')
 
-		proxy_proto, user, pwd, proxy_host, name = self.options.proxy
+		proxy_proto, user, pwd, proxy_host = self.options.proxy[:4]
 		proxy_port = 9050
 		proxy_host = proxy_host.split(':')
 		if len(proxy_host) > 1:
@@ -99,7 +102,7 @@ class HttpTransport(Transport):
 			else: connection.request('GET', url, headers=headers)
 			response = self.timeout_response(connection, timeout)
 			if response.status == httplib.UNAUTHORIZED:
-				say_line('Wrong username or password for %s', self.servers.server_name())
+				say_line('Wrong username or password for %s', self.switch.server_name())
 				raise NotAuthorized()
 			r = self.max_redirects
 			while response.status == httplib.TEMPORARY_REDIRECT:
@@ -110,10 +113,10 @@ class HttpTransport(Transport):
 				response = self.timeout_response(connection, timeout)
 				r -= 1
 			self.long_poll_url = response.getheader('X-Long-Polling', '')
-			self.servers.update_time = bool(response.getheader('X-Roll-NTime', ''))
+			self.switch.update_time = bool(response.getheader('X-Roll-NTime', ''))
 			hostList = response.getheader('X-Host-List', '')
 			self.stratum_header = response.getheader('x-stratum', '')
-			if (not self.options.nsf) and hostList: self.servers.add_servers(loads(hostList))
+			if (not self.options.nsf) and hostList: self.switch.add_servers(loads(hostList))
 			result = loads(response.read())
 			if result['error']:
 				say_line('server error: %s', result['error']['message'])
@@ -146,7 +149,7 @@ class HttpTransport(Transport):
 			self.postdata['params'] = if_else(data, [data], [])
 			(self.connection, result) = self.request(self.connection, '/', self.headers, dumps(self.postdata))
 
-			self.servers.connection_ok()
+			self.switch.connection_ok()
 
 			return result['result']
 		except Exception:
@@ -158,7 +161,7 @@ class HttpTransport(Transport):
 		data = ''.join([result.header.encode('hex'), pack('III', long(result.time), long(result.difficulty), long(nonce)).encode('hex'), '000000800000000000000000000000000000000000000000000000000000000000000000000000000000000080020000'])
 		accepted = self.getwork(data)
 		if accepted != None:
-			self.servers.report(result.miner, nonce, accepted)
+			self.switch.report(result.miner, nonce, accepted)
 			return True
 
 	def long_poll_thread(self):
@@ -182,7 +185,7 @@ class HttpTransport(Transport):
 					if host != last_host: self.close_lp_connection()
 					self.lp_connection, changed = self.ensure_connected(self.lp_connection, proto, host)
 					if changed:
-						say_line("LP connected to %s", self.servers.server_name())
+						say_line("LP connected to %s", self.switch.server_name())
 						last_host = host
 
 					self.long_poll_active = True
@@ -220,7 +223,7 @@ class HttpTransport(Transport):
 			if not 'target' in work:
 				work['target'] = '0000000000000000000000000000000000000000000000000000ffff00000000'
 
-			self.servers.queue_work(self, work['data'], work['target'], miner=miner)
+			self.switch.queue_work(self, work['data'], work['target'], miner=miner)
 
 	def detect_stratum(self):
 		work = self.getwork()

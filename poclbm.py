@@ -1,12 +1,14 @@
 #!/usr/bin/python
-
-from BitcoinMiner import *
+from Switch import Switch
 from optparse import OptionGroup, OptionParser
 from time import sleep
-import Servers
+from util import if_else
+from version import VERSION
+import BFLMiner
+import OpenCLMiner
 import log
-import pyopencl as cl
 import socket
+import sys
 
 def tokenize(option, name, default=[0], cast=int):
 	if option:
@@ -16,11 +18,7 @@ def tokenize(option, name, default=[0], cast=int):
 			log.say_exception('Invalid %s(s) specified: %s\n\n' % (name, option))
 			sys.exit()
 	return default
-
-try:
-	from adl3 import ADL_Main_Control_Create, ADL_Main_Memory_Alloc, ADL_Main_Control_Destroy, ADL_OK
-except ImportError:
-	print '\nWARNING: no adl3 module found (github.com/mjmvisser/adl3), temperature control is disabled\n'
+	
 
 # Socket wrapper to enable socket.TCP_NODELAY and KEEPALIVE
 realsocket = socket.socket
@@ -31,8 +29,6 @@ def socketwrap(family=socket.AF_INET, type=socket.SOCK_STREAM, proto=0):
 	sockobj.settimeout(5)
 	return sockobj
 socket.socket = socketwrap
-
-VERSION = '20120920'
 
 usage = "usage: %prog [OPTION]... SERVER[#tag]...\nSERVER is one or more [http[s]|stratum://]user:pass@host:port          (required)\n[#tag] is a per SERVER user friendly name displayed in stats (optional)"
 parser = OptionParser(version=VERSION, usage=usage)
@@ -49,11 +45,12 @@ group.add_option('--no-server-failbacks', dest='nsf',        action='store_true'
 parser.add_option_group(group)
 
 group = OptionGroup(parser,
-	"GPU Options",
+	"OpenCL Options",
 	"Every option except 'platform' and 'vectors' can be specified as a comma separated list. "
 	"If there aren't enough entries specified, the last available is used. "
 	"Use --vv to specify per-device vectors usage."
 )
+group.add_option('--no-ocl',         dest='no_ocl',     action='store_true', help="don't use OpenCL")
 group.add_option('-p', '--platform', dest='platform',   default=-1,          help='use platform by id', type='int')
 group.add_option('-d', '--device',   dest='device',     default=[],          help='device ID, by default will use all GPU devices')
 group.add_option('-w', '--worksize', dest='worksize',   default=[],          help='work group size, default is maximum returned by OpenCL')
@@ -76,80 +73,40 @@ options.version = VERSION
 
 options.max_update_time = 60
 
-platforms = cl.get_platforms()
-
-if options.platform >= len(platforms) or (options.platform == -1 and len(platforms) > 1):
-	print 'Wrong platform or more than one OpenCL platforms found, use --platform to select one of the following\n'
-	for i in xrange(len(platforms)):
-		print '[%d]\t%s' % (i, platforms[i].name)
-	sys.exit()
-
-if options.platform == -1:
-	options.platform = 0
-
-devices = platforms[options.platform].get_devices()
-
 options.device = tokenize(options.device, 'device', [])
-options.worksize = tokenize(options.worksize, 'worksize')
-options.frames = tokenize(options.frames, 'frames', [30])
-options.frameSleep = tokenize(options.frameSleep, 'frameSleep', cast=float)
-options.vectors = if_else(options.old_vectors, [True], tokenize(options.vectors, 'vectors', [False], bool))
+
+if OpenCLMiner.OPENCL:
+	options.worksize = tokenize(options.worksize, 'worksize')
+	options.frames = tokenize(options.frames, 'frames', [30])
+	options.frameSleep = tokenize(options.frameSleep, 'frameSleep', cast=float)
+	options.vectors = if_else(options.old_vectors, [True], tokenize(options.vectors, 'vectors', [False], bool))
+
 options.cutoff_temp = tokenize(options.cutoff_temp, 'cutoff_temp', [95], float)
 options.cutoff_interval = tokenize(options.cutoff_interval, 'cutoff_interval', [0.01], float)
 
-if not options.device:
-	for i in xrange(len(devices)):
-		print '[%d]\t%s' % (i, devices[i].name)
-	print '\nNo devices specified, using all GPU devices\n'
-
-miners = [
-	BitcoinMiner(i, options)
-	for i in xrange(len(devices))
-	if (
-		(not options.device and devices[i].type == cl.device_type.GPU) or
-		(i in options.device)
-	)
-]
-
-for i in xrange(len(miners)):
-	miners[i].worksize = options.worksize[min(i, len(options.worksize) - 1)]
-	miners[i].frames = options.frames[min(i, len(options.frames) - 1)]
-	miners[i].frameSleep = options.frameSleep[min(i, len(options.frameSleep) - 1)]
-	miners[i].vectors = options.vectors[min(i, len(options.vectors) - 1)]
-	miners[i].cutoff_temp = options.cutoff_temp[min(i, len(options.cutoff_temp) - 1)]
-	miners[i].cutoff_interval = options.cutoff_interval[min(i, len(options.cutoff_interval) - 1)]	
-
-servers = None
+switch = None
 try:
-	#init adl
-	try:
-		ADL_OK
-		if ADL_Main_Control_Create(ADL_Main_Memory_Alloc, 1) != ADL_OK:
-			print "Couldn't initialize ADL interface."
-			sys.exit()
-	except NameError:
-		pass
-	#end init adl
+	switch = Switch(options)
 
-	servers = Servers.Servers(options)
+	for miner in OpenCLMiner.initialize(options):
+		switch.add_miner(miner)
 
-	for miner in miners:
-		servers.add_miner(miner)
+	for miner in BFLMiner.initialize(options):
+		switch.add_miner(miner)
+
+	for miner in switch.miners:
 		miner.start()
 
-	servers.loop()
+	if switch.miners:
+		switch.loop()
+	else:
+		print '\nNothing to mine on, exiting\n'
 except KeyboardInterrupt:
 	print '\nbye'
 finally:
-	for miner in miners:
+	for miner in switch.miners:
 		miner.stop()
-	if servers: servers.stop()
+	if switch: switch.stop()
 
-	#adl shutdown
-	try:
-		ADL_OK
-		ADL_Main_Control_Destroy()
-	except NameError:
-		pass
-	#end adl shutdown
+	OpenCLMiner.shutdown()
 sleep(1.1)
