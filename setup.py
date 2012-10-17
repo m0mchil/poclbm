@@ -22,7 +22,6 @@ args = {
     'url': 'https://github.com/m0mchil/poclbm/',
     'install_requires': ['numpy', 'pyserial>=2.6'],
     'scripts': ['poclbm.py'],
-    #'modules': ['BFLMiner', 'detect', 'GetworkSource', 'log', 'OpenCLMiner', 'sha256', 'socks', 'Source', 'StratumSource', 'Switch', 'util', 'version'],
 }
 
 if LINUX:
