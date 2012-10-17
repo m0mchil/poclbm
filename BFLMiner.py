@@ -147,6 +147,8 @@ class BFLMiner(Miner):
 				response = init_device(self.device)
 				if not is_good_init(response):
 					say_line('Failed to initialize %s (response: %s), retrying...', (self.id(), response))
+					self.device.close()
+					self.device = None
 					sleep(1)
 					continue
 
