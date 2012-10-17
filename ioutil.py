@@ -4,18 +4,17 @@ from serial.tools import list_ports
 from detect import LINUX, WINDOWS
 
 def find_udev(check, product_id):
-	if not LINUX: return []
-	try:
-		import pyudev
-	except ImportError:
-		return []
-
 	ports = []
-	context = pyudev.Context()
-	for device in context.list_devices(subsystem='tty', ID_MODEL=product_id):
-		if check(device.device_node):
-			ports.append(device.device_node)
-	
+	if LINUX:
+		try:
+			import pyudev
+
+			context = pyudev.Context()
+			for device in context.list_devices(subsystem='tty', ID_MODEL=product_id):
+				if check(device.device_node):
+					ports.append(device.device_node)
+		except ImportError:
+			pass		
 	return ports
 
 def find_serial_by_id(check, product_id):
@@ -31,6 +30,6 @@ def find_com_ports(check):
 	if WINDOWS:
 		com_ports = [p[0] for p in list_ports.comports()].sort()
 		for port in com_ports:
-			if check(port):
+			if check(port, False):
 				ports.append(port)
 	return ports
