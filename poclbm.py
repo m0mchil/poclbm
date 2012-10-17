@@ -2,23 +2,11 @@
 from Switch import Switch
 from optparse import OptionGroup, OptionParser
 from time import sleep
-from util import if_else
+from util import if_else, tokenize
 from version import VERSION
-import BFLMiner
-import OpenCLMiner
 import log
 import socket
-import sys
 
-def tokenize(option, name, default=[0], cast=int):
-	if option:
-		try:
-			return [cast(x) for x in option.split(',')]
-		except ValueError:
-			log.say_exception('Invalid %s(s) specified: %s\n\n' % (name, option))
-			sys.exit()
-	return default
-	
 
 # Socket wrapper to enable socket.TCP_NODELAY and KEEPALIVE
 realsocket = socket.socket
@@ -36,6 +24,7 @@ parser.add_option('--verbose',        dest='verbose',    action='store_true', he
 parser.add_option('-q', '--quiet',    dest='quiet',      action='store_true', help='suppress all output except hash rate display')
 parser.add_option('--proxy',          dest='proxy',      default='',          help='specify as [[socks4|socks5|http://]user:pass@]host:port (default proto is socks5)')
 parser.add_option('--no-ocl',         dest='no_ocl',     action='store_true', help="don't use OpenCL")
+parser.add_option('--no-bfl',         dest='no_bfl',     action='store_true', help="don't use Butterfly Labs")
 
 group = OptionGroup(parser, "Miner Options")
 group.add_option('-r', '--rate',          dest='rate',       default=1,       help='hash rate display interval in seconds, default=1 (60 with --verbose)', type='float')
@@ -75,12 +64,6 @@ options.max_update_time = 60
 
 options.device = tokenize(options.device, 'device', [])
 
-if OpenCLMiner.OPENCL:
-	options.worksize = tokenize(options.worksize, 'worksize')
-	options.frames = tokenize(options.frames, 'frames', [30])
-	options.frameSleep = tokenize(options.frameSleep, 'frameSleep', cast=float)
-	options.vectors = if_else(options.old_vectors, [True], tokenize(options.vectors, 'vectors', [False], bool))
-
 options.cutoff_temp = tokenize(options.cutoff_temp, 'cutoff_temp', [95], float)
 options.cutoff_interval = tokenize(options.cutoff_interval, 'cutoff_interval', [0.01], float)
 
@@ -88,11 +71,15 @@ switch = None
 try:
 	switch = Switch(options)
 
-	for miner in OpenCLMiner.initialize(options):
-		switch.add_miner(miner)
+	if not options.no_ocl:
+		import OpenCLMiner
+		for miner in OpenCLMiner.initialize(options):
+			switch.add_miner(miner)
 
-	for miner in BFLMiner.initialize(options):
-		switch.add_miner(miner)
+	if not options.no_bfl:
+		import BFLMiner
+		for miner in BFLMiner.initialize(options):
+			switch.add_miner(miner)
 
 	for miner in switch.miners:
 		miner.start()
@@ -108,5 +95,6 @@ finally:
 		miner.stop()
 	if switch: switch.stop()
 
-	OpenCLMiner.shutdown()
+	if not options.no_ocl:
+		OpenCLMiner.shutdown()
 sleep(1.1)

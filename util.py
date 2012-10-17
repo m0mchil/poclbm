@@ -1,4 +1,6 @@
+from log import say_exception
 from struct import pack, unpack, error
+import sys
 
 class Object(object):
 	pass
@@ -27,6 +29,15 @@ def if_else(condition, trueVal, falseVal):
 def chunks(l, n):
 	for i in xrange(0, len(l), n):
 		yield l[i:i+n]
+
+def tokenize(option, name, default=[0], cast=int):
+	if option:
+		try:
+			return [cast(x) for x in option.split(',')]
+		except ValueError:
+			say_exception('Invalid %s(s) specified: %s\n\n' % (name, option))
+			sys.exit()
+	return default
 
 def patch(data):
 	pos = data.find('\x7fELF', 1)

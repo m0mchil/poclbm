@@ -6,7 +6,7 @@ from sha256 import partial, calculateF
 from struct import pack
 from threading import Lock
 from time import sleep, time
-from util import if_else, uint32, Object, bytereverse, patch
+from util import if_else, uint32, Object, bytereverse, patch, tokenize
 import numpy as np
 import sys
 
@@ -56,8 +56,13 @@ def shutdown():
 
 
 def initialize(options):
-	if not OPENCL or options.no_ocl:
+	if not OPENCL:
 		return []
+
+	options.worksize = tokenize(options.worksize, 'worksize')
+	options.frames = tokenize(options.frames, 'frames', [30])
+	options.frameSleep = tokenize(options.frameSleep, 'frameSleep', cast=float)
+	options.vectors = if_else(options.old_vectors, [True], tokenize(options.vectors, 'vectors', [False], bool))
 
 	platforms = cl.get_platforms()
 
