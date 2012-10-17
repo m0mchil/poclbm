@@ -35,12 +35,15 @@ parser = OptionParser(version=VERSION, usage=usage)
 parser.add_option('--verbose',        dest='verbose',    action='store_true', help='verbose output, suitable for redirection to log file')
 parser.add_option('-q', '--quiet',    dest='quiet',      action='store_true', help='suppress all output except hash rate display')
 parser.add_option('--proxy',          dest='proxy',      default='',          help='specify as [[socks4|socks5|http://]user:pass@]host:port (default proto is socks5)')
+parser.add_option('--no-ocl',         dest='no_ocl',     action='store_true', help="don't use OpenCL")
 
 group = OptionGroup(parser, "Miner Options")
 group.add_option('-r', '--rate',          dest='rate',       default=1,       help='hash rate display interval in seconds, default=1 (60 with --verbose)', type='float')
 group.add_option('-e', '--estimate',      dest='estimate',   default=900,     help='estimated rate time window in seconds, default 900 (15 minutes)', type='int')
 group.add_option('-t', '--tolerance',     dest='tolerance',  default=2,       help='use fallback pool only after N consecutive connection errors, default 2', type='int')
 group.add_option('-b', '--failback',      dest='failback',   default=60,      help='attempt to fail back to the primary pool after N seconds, default 60', type='int')
+group.add_option('--cutoff-temp',         dest='cutoff_temp',default=[],      help='(for OpenCL requires github.com/mjmvisser/adl3) temperature at which to skip kernel execution, in C, default=95')
+group.add_option('--cutoff-interval',     dest='cutoff_interval',default=[],  help='how long to not execute calculations if CUTOFF_TEMP is reached, in seconds, default=0.01')
 group.add_option('--no-server-failbacks', dest='nsf',        action='store_true', help='disable using failback hosts provided by server')
 parser.add_option_group(group)
 
@@ -50,7 +53,6 @@ group = OptionGroup(parser,
 	"If there aren't enough entries specified, the last available is used. "
 	"Use --vv to specify per-device vectors usage."
 )
-group.add_option('--no-ocl',         dest='no_ocl',     action='store_true', help="don't use OpenCL")
 group.add_option('-p', '--platform', dest='platform',   default=-1,          help='use platform by id', type='int')
 group.add_option('-d', '--device',   dest='device',     default=[],          help='device ID, by default will use all GPU devices')
 group.add_option('-w', '--worksize', dest='worksize',   default=[],          help='work group size, default is maximum returned by OpenCL')
@@ -58,8 +60,6 @@ group.add_option('-f', '--frames',   dest='frames',     default=[],          hel
 group.add_option('-s', '--sleep',    dest='frameSleep', default=[],          help='sleep per frame in seconds, default 0')
 group.add_option('--vv',             dest='vectors',    default=[],          help='use vectors, default false')
 group.add_option('-v', '--vectors',  dest='old_vectors',action='store_true', help='use vectors')
-group.add_option('--cutoff_temp',    dest='cutoff_temp',default=[],          help='(requires github.com/mjmvisser/adl3) temperature at which to skip kernel execution, in C, default=95')
-group.add_option('--cutoff_interval',dest='cutoff_interval',default=[],      help='(requires adl3) how long to not execute calculations if CUTOFF_TEMP is reached, in seconds, default=0.01')
 parser.add_option_group(group)
 
 (options, options.servers) = parser.parse_args()
