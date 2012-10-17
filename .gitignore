@@ -1,2 +1,11 @@
+/build
+/dist
+/package
+/test
 *.elf
 *.pyc
+*.sh
+*.sh~
+*.bat
+*.bak
+*.dll
