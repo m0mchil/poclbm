@@ -219,7 +219,7 @@ class OpenCLMiner(Miner):
 
 			t = now - last_rated
 			if t > self.options.rate:
-				self.update_rate(threads_run, t, work.targetQ, rate_divisor)
+				self.update_rate(now, threads_run, t, work.targetQ, rate_divisor)
 				last_rated = now; threads_run = 0
 
 			queue.finish()

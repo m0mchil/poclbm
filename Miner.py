@@ -27,8 +27,7 @@ class Miner(object):
 		if message: print '\n%s' % message
 		self.should_stop = True
 
-	def update_rate(self, iterations, t, targetQ, rate_divisor=1000):
-		now = time()
+	def update_rate(self, now, iterations, t, targetQ, rate_divisor=1000):
 		self.rate = int((iterations / t) / rate_divisor)
 		self.rate = Decimal(self.rate) / 1000
 		if self.accept_hist:

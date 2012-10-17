@@ -188,9 +188,9 @@ class BFLMiner(Miner):
 							iterations += 4294967296
 							t = now - last_rated
 							if t > self.options.rate:
-								self.update_rate(iterations, t, targetQ)
+								self.update_rate(now, iterations, t, targetQ)
 								last_rated = now; iterations = 0
-	
+
 							if result != b'NO-NONCE\n':
 								r.nonces = result
 								self.switch.put(r)
