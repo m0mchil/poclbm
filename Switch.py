@@ -226,7 +226,7 @@ class Switch(object):
 		name = server[4]
 		#say_line('Setting server %s (%s @ %s)', (name, user, host))
 		say_line('Setting server (%s @ %s)', (user, name))
-		log.server = name + ' '
+		log.server = name
 
 	def add_servers(self, hosts):
 		self.servers = list(self.user_servers)
@@ -261,23 +261,34 @@ class Switch(object):
 			return None
 		if len(self.server) < 6:
 			if self.server[0] == 'stratum':
-				self.server = self.server + (StratumSource.StratumSource(self, self.server), )
+				self.add_stratum_source()
 			else:
-				http_server = GetworkSource.GetworkSource(self, self.server)
+				getwork_source = GetworkSource.GetworkSource(self, self.server)
 				say_line('checking for stratum...')
 
-				stratum_host = http_server.detect_stratum()
+				stratum_host = getwork_source.detect_stratum()
 				if stratum_host:
-					http_server.close_connection()
+					getwork_source.close_connection()
 					user = self.server[1]
 					pwd = self.server[2]
 					name = self.server[4]
 					self.server = self.servers[self.server_index] = ('stratum', user, pwd, stratum_host, name)
-					self.server = self.server + (StratumSource.StratumSource(self, self.server), )
+					self.add_stratum_source()
 				else:
-					self.server = self.servers[self.server_index] = (self.server + (http_server, ))
+					self.server = self.servers[self.server_index] = (self.server + (getwork_source, ))
 
 		return self.server[5]
+
+	def add_stratum_source(self):
+		proto, user, pwd, host, name = self.server[:5]
+		stratum_proxy = StratumSource.detect_stratum_proxy(host)
+		if stratum_proxy:
+			original_server = self.server
+			self.servers.insert(self.backup_server_index, original_server + (StratumSource.StratumSource(self, original_server), ))
+			name += '(p)'
+			self.server = (proto, user, pwd, stratum_proxy, name)
+			log.server = name
+		self.server = self.servers[self.server_index] = (self.server + (StratumSource.StratumSource(self, self.server), ))
 
 	def server_key(self, server):
 		return server[1:4]

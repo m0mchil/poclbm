@@ -18,6 +18,35 @@ import socks
 
 BASE_DIFFICULTY = 0x00000000FFFF0000000000000000000000000000000000000000000000000000
 
+def detect_stratum_proxy(host):
+	s = None
+	try:
+		s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, 0)
+		s.sendto(dumps({"id": 0, "method": "mining.get_upstream", "params": []}), ('239.3.3.3', 3333))
+
+		say_line('Searching stratum proxy for %s', host)
+
+		s.settimeout(2)
+
+		try:
+			while True:
+				response, address = s.recvfrom(128)
+				try:
+					response = loads(response)
+					response_host = response['result'][0][0] + ':' + str(response['result'][0][1])
+					if response_host == host:
+						proxy_address = address[0] + ':' + str(response['result'][1])
+						say_line('Using stratum proxy at %s', proxy_address)
+						return proxy_address
+				except ValueError:
+					pass
+		except socket.timeout:
+			pass
+
+	finally:
+		if s != None:
+			s.close()
+
 
 class StratumSource(Source):
 	def __init__(self, switch, server):
@@ -62,7 +91,7 @@ class StratumSource(Source):
 
 
 					if not self.options.proxy:
-						self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+						self.socket = socket.nodelay_socket(socket.AF_INET, socket.SOCK_STREAM)
 						self.socket.connect((address, int(port)))
 					else:
 						proxy_proto, user, pwd, proxy_host = self.options.proxy[:4]
