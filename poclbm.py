@@ -1,4 +1,5 @@
-#!/usr/bin/python
+#!/usr/bin/env python
+
 from Switch import Switch
 from optparse import OptionGroup, OptionParser
 from time import sleep
