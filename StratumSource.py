@@ -4,7 +4,7 @@ from hashlib import sha256
 from json import dumps, loads
 from log import say_exception, say_line
 from struct import pack
-from threading import Thread, Lock
+from threading import Thread, Lock, Timer
 from time import sleep, time
 from util import chunks, Object
 import asynchat
@@ -49,8 +49,8 @@ def detect_stratum_proxy(host):
 
 
 class StratumSource(Source):
-	def __init__(self, switch, server):
-		super(StratumSource, self).__init__(switch, server)
+	def __init__(self, switch):
+		super(StratumSource, self).__init__(switch)
 		self.handler = None
 		self.socket = None
 		self.channel_map = {}
@@ -86,8 +86,7 @@ class StratumSource(Source):
 			if not self.handler:
 				try:
 					#socket = ssl.wrap_socket(socket)
-					host = self.server[3]
-					address, port = host.split(':', 1)
+					address, port = self.server().host.split(':', 1)
 
 
 					if not self.options.proxy:
@@ -208,16 +207,21 @@ class StratumSource(Source):
 			elif message['method'] == 'mining.set_difficulty':
 				say_line("Setting new difficulty: %s", message['params'][0])
 				self.server_difficulty = BASE_DIFFICULTY / message['params'][0]
-	
+
 			#client.reconnect
 			elif message['method'] == 'client.reconnect':
-				(hostname, port) = message['params'][:2]
-				server = self.switch[self.server_index]
-				say_line(server[4] + " asked us to reconnect to %s:%d", (hostname, port))
-				server[3] = hostname + ':' + str(port)
-				self.server = server
-				self.switch[self.server_index] = server
-				self.handler.close()
+				address, port = self.server().host.split(':', 1)
+				(new_address, new_port, timeout) = message['params'][:3]
+				if new_address: address = new_address
+				if new_port != None: port = new_port
+				say_line("%s asked us to reconnect to %s:%d in %d seconds", (self.server().name, address, port, timeout))
+				self.server().host = address + ':' + str(port)
+				Timer(timeout, self.reconnect).start()
+
+			#client.add_peers
+			elif message['method'] == 'client.add_peers':
+				hosts = [{'host': host[0], 'port': host[1]} for host in message['params'][0]]
+				self.switch.add_servers(hosts)
 
 		#responses to server API requests
 		elif 'result' in message:
@@ -244,12 +248,16 @@ class StratumSource(Source):
 					self.last_submits_cleanup = now
 
 			#response to mining.authorize
-			elif message['id'] == self.server[1]:
+			elif message['id'] == self.server().user:
 				if not message['result']:
-					say_line('authorization failed with %s:%s@%s', (self.server[1:4]))
+					say_line('authorization failed with %s:%s@%s', (self.server().user, self.server().pwd, self.server().host))
 					self.authorized = False
 				else:
 					self.authorized = True
+
+	def reconnect(self):
+		say_line("%s reconnecting to %s", (self.server().name, self.server().host))
+		self.handler.close()
 
 	def subscribe(self):
 		self.send_message({'id': 's', 'method': 'mining.subscribe', 'params': []})
@@ -259,7 +267,7 @@ class StratumSource(Source):
 		return self.subscribed
 
 	def authorize(self):
-		self.send_message({'id': self.user, 'method': 'mining.authorize', 'params': [self.user, self.pwd]})
+		self.send_message({'id': self.server().user, 'method': 'mining.authorize', 'params': [self.server().user, self.server().pwd]})
 		for i in xrange(10):
 			sleep(1)
 			if self.authorized != None: break
@@ -269,13 +277,12 @@ class StratumSource(Source):
 		job_id = result.job_id
 		if not job_id in self.jobs:
 			return True
-		user = self.server[1]
 		extranonce2 = result.extranonce2
 		ntime = pack('I', long(result.time)).encode('hex')
 		hex_nonce = pack('I', long(nonce)).encode('hex')
 		id_ = job_id + hex_nonce
 		self.submits[id_] = (result.miner, nonce, time())
-		return self.send_message({'params': [user, job_id, extranonce2, ntime, hex_nonce], 'id': id_, 'method': u'mining.submit'})
+		return self.send_message({'params': [self.server().user, job_id, extranonce2, ntime, hex_nonce], 'id': id_, 'method': u'mining.submit'})
 
 	def send_message(self, message):
 		data = dumps(message) + '\n'

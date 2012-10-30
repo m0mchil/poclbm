@@ -20,15 +20,15 @@ class NotAuthorized(Exception): pass
 class RPCError(Exception): pass
 
 class GetworkSource(Source):
-	def __init__(self, switch, server):
-		super(GetworkSource, self).__init__(switch, server)
-		
+	def __init__(self, switch):
+		super(GetworkSource, self).__init__(switch)
+
 		self.connection = self.lp_connection = None
 		self.long_poll_timeout = 3600
 		self.max_redirects = 3
 
 		self.postdata = {'method': 'getwork', 'id': 'json'}
-		self.headers = {"User-Agent": self.switch.user_agent, "Authorization": 'Basic ' + b64encode('%s:%s' % (self.user, self.pwd)), "X-Mining-Extensions": 'hostlist midstate rollntime'}
+		self.headers = {"User-Agent": self.switch.user_agent, "Authorization": 'Basic ' + b64encode('%s:%s' % (self.server().user, self.server().pwd)), "X-Mining-Extensions": 'hostlist midstate rollntime'}
 		self.long_poll_url = ''
 
 		self.long_poll_active = False
@@ -107,7 +107,7 @@ class GetworkSource(Source):
 			if not response:
 				return None
 			if response.status == httplib.UNAUTHORIZED:
-				say_line('Wrong username or password for %s', self.switch.server_name())
+				say_line('Wrong username or password for %s', self.server().name)
 				self.authorization_failed = True
 				raise NotAuthorized()
 			r = self.max_redirects
@@ -151,7 +151,7 @@ class GetworkSource(Source):
 
 	def getwork(self, data=None):
 		try:
-			self.connection = self.ensure_connected(self.connection, self.proto, self.host)[0]
+			self.connection = self.ensure_connected(self.connection, self.server().proto, self.server().host)[0]
 			self.postdata['params'] = if_else(data, [data], [])
 			(self.connection, result) = self.request(self.connection, '/', self.headers, dumps(self.postdata))
 
@@ -178,8 +178,8 @@ class GetworkSource(Source):
 
 			url = self.long_poll_url
 			if url != '':
-				proto = self.proto
-				host = self.host
+				proto = self.server().proto
+				host = self.server().host
 				parsedUrl = urlsplit(url)
 				if parsedUrl.scheme != '':
 					proto = parsedUrl.scheme
@@ -191,7 +191,7 @@ class GetworkSource(Source):
 					if host != last_host: self.close_lp_connection()
 					self.lp_connection, changed = self.ensure_connected(self.lp_connection, proto, host)
 					if changed:
-						say_line("LP connected to %s", self.switch.server_name())
+						say_line("LP connected to %s", self.server().name)
 						last_host = host
 
 					self.long_poll_active = True
@@ -252,4 +252,4 @@ class GetworkSource(Source):
 				return False
 
 		say_line('no response to getwork, using as stratum')
-		return self.host
+		return self.server().host

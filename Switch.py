@@ -1,4 +1,5 @@
 
+from copy import copy
 from log import say_exception, say_line, say_quiet
 from sha256 import sha256, STATE, partial, calculateF, hash
 from struct import pack, unpack
@@ -23,12 +24,11 @@ class Switch(object):
 		self.backup_server_index = 1
 		self.errors = 0
 		self.failback_attempt_count = 0
-		self.server = None
 		self.server_index = -1
-		self.save_server = None
+		self.last_server = None
 		self.server_map = {}
 
-		self.user_agent = 'digger/' + options.version
+		self.user_agent = 'poclbm/' + options.version
 
 		self.difficulty = 0
 		self.true_target = None
@@ -50,32 +50,33 @@ class Switch(object):
 				continue
 
 	def parse_server(self, server, mailAsUser=True):
+		s = Object()
 		temp = server.split('://', 1)
 		if len(temp) == 1:
-			proto = ''; temp = temp[0]
-		else: proto = temp[0]; temp = temp[1]
+			s.proto = ''; temp = temp[0]
+		else: s.proto = temp[0]; temp = temp[1]
 		if mailAsUser:
-			user, temp = temp.split(':', 1)
-			pwd, host = temp.split('@')
+			s.user, temp = temp.split(':', 1)
+			s.pwd, s.host = temp.split('@')
 		else:
 			temp = temp.split('@', 1)
 			if len(temp) == 1:
-				user = ''
-				pwd = ''
-				host = temp[0]
+				s.user = ''
+				s.pwd = ''
+				s.host = temp[0]
 			else:
 				if temp[0].find(':') <> -1:
-					user, pwd = temp[0].split(':')
+					s.user, s.pwd = temp[0].split(':')
 				else:
-					user = temp[0]
-					pwd = ''
-				host = temp[1]
+					s.user = temp[0]
+					s.pwd = ''
+				s.host = temp[1]
 
-		if host.find('#') != -1:
-			host, name = host.split('#')
-		else: name = host
+		if s.host.find('#') != -1:
+			s.host, s.name = s.host.split('#')
+		else: s.name = s.host
 
-		return (proto, user, pwd, host, name)
+		return s
 
 	def add_miner(self, miner):
 		self.miners.append(miner)
@@ -93,27 +94,26 @@ class Switch(object):
 			print '\nAt least one server is required'
 			return
 		else:
-			self.set_server_by_index(0)
-			self.user_servers = list(self.servers)
+			self.set_server_index(0)
 
 		while True:
 			if self.should_stop: return
 
-			failback = self.server_transport().loop()
+			failback = self.server_source().loop()
 
 			sleep(1)
 
 			if failback:
 				say_line("Attempting to fail back to primary server")
-				self.save_server = self.server_index
-				self.set_server_by_index(0)
+				self.last_server = self.server_index
+				self.set_server_index(0)
 				continue
 
-			if self.save_server:
+			if self.last_server:
 				self.failback_attempt_count += 1
-				self.set_server_by_index(self.save_server)
+				self.set_server_index(self.last_server)
 				say_line('Still unable to reconnect to primary server (attempt %s), failing over', self.failback_attempt_count)
-				self.save_server = None
+				self.last_server = None
 				continue
 
 			self.errors += 1
@@ -128,7 +128,7 @@ class Switch(object):
 				else:
 					new_server_index = self.backup_server_index
 					self.backup_server_index += 1
-				self.set_server_by_index(new_server_index)
+				self.set_server_index(new_server_index)
 
 	def connection_ok(self):
 		self.errors = 0
@@ -138,8 +138,8 @@ class Switch(object):
 
 	def stop(self):
 		self.should_stop = True
-		if self.server:
-			self.server_transport().stop()
+		if self.server_index != -1:
+			self.server_source().stop()
 
 	#callers must provide hex encoded block header and target
 	def decode(self, server, block_header, target, job_id = None, extranonce2 = None):
@@ -216,24 +216,30 @@ class Switch(object):
 			say_line('%s %s%s, %s', (miner.id(), if_else(is_block, 'block ', ''), hash_, if_else(accepted, 'accepted', '_rejected_')))
 		del self.sent[nonce]
 
-	def set_server_by_index(self, server_index):
+	def set_server_index(self, server_index):
 		self.server_index = server_index
-		self.set_server(self.servers[server_index])
-
-	def set_server(self, server):
-		self.server = server
-		user = server[1]
-		name = server[4]
+		user = self.servers[server_index].user
+		name = self.servers[server_index].name
 		#say_line('Setting server %s (%s @ %s)', (name, user, host))
 		say_line('Setting server (%s @ %s)', (user, name))
 		log.server = name
+		
 
 	def add_servers(self, hosts):
-		self.servers = list(self.user_servers)
 		for host in hosts[::-1]:
-			server = self.server
-			server = (server[0], server[1], server[2], ''.join([host['host'], ':', str(host['port'])]), server[4])
-			self.servers.insert(self.backup_server_index, server)
+			port = str(host['port'])
+			if not self.has_server(self.server().user, host['host'], port):
+				server = copy(self.server())
+				server.host = ''.join([host['host'], ':', port])
+				server.source = None
+				self.servers.insert(self.backup_server_index, server)
+
+	def has_server(self, user, host, port):
+		for server in self.servers:
+			server_host, server_port = self.server().host.split(':', 1)
+			if server.user == user and server_host == host and server_port == port:
+				return True
+		return False
 
 	def queue_work(self, server, block_header, target = None, job_id = None, extranonce2 = None, miner=None):
 		work = self.decode(server, block_header, target, job_id, extranonce2)
@@ -253,45 +259,38 @@ class Switch(object):
 		while not server.result_queue.empty():
 			server.result_queue.get(False)
 
-	def server_name(self):
-		return self.server[4]
-
-	def server_transport(self):
-		if not self.server:
-			return None
-		if len(self.server) < 6:
-			if self.server[0] == 'stratum':
+	def server_source(self):
+		if not hasattr(self.server(), 'source'):
+			if self.server().proto == 'stratum':
 				self.add_stratum_source()
 			else:
-				getwork_source = GetworkSource.GetworkSource(self, self.server)
+				getwork_source = GetworkSource.GetworkSource(self)
 				say_line('checking for stratum...')
 
 				stratum_host = getwork_source.detect_stratum()
 				if stratum_host:
 					getwork_source.close_connection()
-					user = self.server[1]
-					pwd = self.server[2]
-					name = self.server[4]
-					self.server = self.servers[self.server_index] = ('stratum', user, pwd, stratum_host, name)
+					self.server().proto = 'stratum'
+					self.server().host = stratum_host
 					self.add_stratum_source()
 				else:
-					self.server = self.servers[self.server_index] = (self.server + (getwork_source, ))
+					self.server().source = getwork_source
 
-		return self.server[5]
+		return self.server().source
 
 	def add_stratum_source(self):
-		proto, user, pwd, host, name = self.server[:5]
-		stratum_proxy = StratumSource.detect_stratum_proxy(host)
+		stratum_proxy = StratumSource.detect_stratum_proxy(self.server().host)
 		if stratum_proxy:
-			original_server = self.server
-			self.servers.insert(self.backup_server_index, original_server + (StratumSource.StratumSource(self, original_server), ))
-			name += '(p)'
-			self.server = (proto, user, pwd, stratum_proxy, name)
-			log.server = name
-		self.server = self.servers[self.server_index] = (self.server + (StratumSource.StratumSource(self, self.server), ))
-
-	def server_key(self, server):
-		return server[1:4]
+			original_server = copy(self.server())
+			original_server.source = StratumSource.StratumSource(self)
+			self.servers.insert(self.backup_server_index, original_server)
+			self.server().host = stratum_proxy
+			self.server().name += '(p)'
+			log.server = self.server().name
+		self.server().source = StratumSource.StratumSource(self)
+	
+	def server(self):
+		return self.servers[self.server_index]
 
 	def put(self, result):
 		result.server.result_queue.put(result)

@@ -3,12 +3,13 @@ from time import time
 
 
 class Source(object):
-	def __init__(self, switch, server):
+	def __init__(self, switch):
 		self.switch = switch
-		self.server = server
-		self.proto, self.user, self.pwd, self.host, self.name = server[:5]
 		self.result_queue = Queue()
 		self.options = switch.options
+
+	def server(self):
+		return self.switch.server()
 
 	def loop(self):
 		self.should_stop = False
