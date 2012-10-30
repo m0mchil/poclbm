@@ -33,7 +33,10 @@ class GetworkSource(Source):
 
 		self.long_poll_active = False
 
+		self.authorization_failed = False
+
 	def loop(self):
+		if self.authorization_failed: return
 		super(GetworkSource, self).loop()
 
 		thread = Thread(target=self.long_poll_thread)
@@ -101,8 +104,11 @@ class GetworkSource(Source):
 			if data: connection.request('POST', url, data, headers)
 			else: connection.request('GET', url, headers=headers)
 			response = self.timeout_response(connection, timeout)
+			if not response:
+				return None
 			if response.status == httplib.UNAUTHORIZED:
 				say_line('Wrong username or password for %s', self.switch.server_name())
+				self.authorization_failed = True
 				raise NotAuthorized()
 			r = self.max_redirects
 			while response.status == httplib.TEMPORARY_REDIRECT:
@@ -152,10 +158,10 @@ class GetworkSource(Source):
 			self.switch.connection_ok()
 
 			return result['result']
-		except Exception:
-			say_exception()
 		except (IOError, httplib.HTTPException, ValueError, socks.ProxyError, NotAuthorized, RPCError):
 			self.stop()
+		except Exception:
+			say_exception()
 
 	def send_internal(self, result, nonce):
 		data = ''.join([result.header.encode('hex'), pack('III', long(result.time), long(result.difficulty), long(nonce)).encode('hex'), '000000800000000000000000000000000000000000000000000000000000000000000000000000000000000080020000'])
@@ -196,12 +202,12 @@ class GetworkSource(Source):
 						self.queue_work(result['result'])
 						if self.options.verbose:
 							say_line('long poll: new block %s%s', (result['result']['data'][56:64], result['result']['data'][48:56]))
-				except Exception:
-					say_exception()
 				except (IOError, httplib.HTTPException, ValueError, socks.ProxyError, NotAuthorized, RPCError):
 					say_exception('long poll IO error')
 					self.close_lp_connection()
 					sleep(.5)
+				except Exception:
+					say_exception()
 
 	def stop(self):
 		self.should_stop = True
@@ -227,6 +233,8 @@ class GetworkSource(Source):
 
 	def detect_stratum(self):
 		work = self.getwork()
+		if self.authorization_failed:
+			return False
 
 		if work:
 			if self.stratum_header:
