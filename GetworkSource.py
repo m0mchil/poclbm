@@ -173,7 +173,7 @@ class GetworkSource(Source):
 	def long_poll_thread(self):
 		last_host = None
 		while True:
-			if self.should_stop:
+			if self.should_stop or self.authorization_failed:
 				return
 
 			url = self.long_poll_url
