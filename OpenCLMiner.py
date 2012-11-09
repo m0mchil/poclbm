@@ -47,6 +47,8 @@ if OPENCL:
 			adl_lock = Lock()
 	except ImportError:
 		print '\nWARNING: no adl3 module found (github.com/mjmvisser/adl3), temperature control is disabled\n'
+	except OSError:# if no ADL is present ie no AMD platform
+		pass
 else:
 	print "\nNot using OpenCL\n"
 
@@ -114,7 +116,7 @@ class OpenCLMiner(Miner):
 		self.vectors = False
 
 		self.adapterIndex = None
-		if ADL and self.device.type == cl.device_type.GPU:
+		if ADL and 'amd' in self.device.platform.name.lower() and self.device.type == cl.device_type.GPU:
 			with adl_lock:
 				self.adapterIndex = self.get_adapter_info()[self.device_index].iAdapterIndex
 
@@ -201,7 +203,7 @@ class OpenCLMiner(Miner):
 				sleep(self.cutoff_interval)
 
 			now = time()
-			if self.adapterIndex:
+			if self.adapterIndex != None:
 				t = now - last_temperature
 				if temperature >= self.cutoff_temp or t > 1:
 					last_temperature = now
