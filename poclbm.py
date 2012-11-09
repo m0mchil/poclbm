@@ -33,7 +33,7 @@ group.add_option('-r', '--rate',          dest='rate',       default=1,       he
 group.add_option('-e', '--estimate',      dest='estimate',   default=900,     help='estimated rate time window in seconds, default 900 (15 minutes)', type='int')
 group.add_option('-t', '--tolerance',     dest='tolerance',  default=2,       help='use fallback pool only after N consecutive connection errors, default 2', type='int')
 group.add_option('-b', '--failback',      dest='failback',   default=60,      help='attempt to fail back to the primary pool after N seconds, default 60', type='int')
-group.add_option('--cutoff-temp',         dest='cutoff_temp',default=[],      help='(for OpenCL requires github.com/mjmvisser/adl3) comma separated temperatures at which to skip kernel execution, in C, default=95')
+group.add_option('--cutoff-temp',         dest='cutoff_temp',default=[],      help='AMD GPUs, BFL only. For GPUs requires github.com/mjmvisser/adl3. Comma separated temperatures at which to skip kernel execution, in C, default=95')
 group.add_option('--cutoff-interval',     dest='cutoff_interval',default=[],  help='how long to not execute calculations if CUTOFF_TEMP is reached, in seconds, default=0.01')
 group.add_option('--no-server-failbacks', dest='nsf',        action='store_true', help='disable using failback hosts provided by server')
 parser.add_option_group(group)

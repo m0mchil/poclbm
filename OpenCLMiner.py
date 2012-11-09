@@ -32,6 +32,12 @@ if PYOPENCL:
 	except Exception:
 		print '\nNo OpenCL\n'
 
+def has_amd():
+	for platform in cl.get_platforms():
+		if 'amd' in platform.name.lower():
+			return True
+	return False
+
 if OPENCL:
 	try:
 		from adl3 import ADL_Main_Control_Create, ADL_Main_Memory_Alloc, ADL_Main_Control_Destroy, \
@@ -46,9 +52,10 @@ if OPENCL:
 			ADL = True
 			adl_lock = Lock()
 	except ImportError:
-		print '\nWARNING: no adl3 module found (github.com/mjmvisser/adl3), temperature control is disabled\n'
-	except OSError:# if no ADL is present ie no AMD platform
-		pass
+		if has_amd():
+			print '\nWARNING: no adl3 module found (github.com/mjmvisser/adl3), temperature control is disabled\n'
+	except OSError:# if no ADL is present i.e. no AMD platform
+		print '\nWARNING: ADL missing (no AMD platform?), temperature control is disabled\n'
 else:
 	print "\nNot using OpenCL\n"
 
