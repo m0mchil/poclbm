@@ -79,7 +79,8 @@ def initialize(options):
 
 	devices = platforms[options.platform].get_devices()
 
-	if not options.device:
+	if not options.device and devices:
+		print '\nOpenCL devices:\n'
 		for i in xrange(len(devices)):
 			print '[%d]\t%s' % (i, devices[i].name)
 		print '\nNo devices specified, using all GPU devices\n'
