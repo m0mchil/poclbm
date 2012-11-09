@@ -28,7 +28,8 @@ def find_serial_by_id(check, product_id):
 def find_com_ports(check):
 	ports = []
 	if WINDOWS:
-		com_ports = [p[0] for p in list_ports.comports()].sort()
+		com_ports = [p[0] for p in list_ports.comports()]
+		com_ports.sort()
 		for port in com_ports:
 			if check(port, False):
 				ports.append(port)
