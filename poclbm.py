@@ -21,12 +21,13 @@ socket.nodelay_socket = socketwrap
 
 usage = "usage: %prog [OPTION]... SERVER[#tag]...\nSERVER is one or more [http[s]|stratum://]user:pass@host:port          (required)\n[#tag] is a per SERVER user friendly name displayed in stats (optional)"
 parser = OptionParser(version=VERSION, usage=usage)
-parser.add_option('--verbose',        dest='verbose',    action='store_true', help='verbose output, suitable for redirection to log file')
-parser.add_option('-q', '--quiet',    dest='quiet',      action='store_true', help='suppress all output except hash rate display')
-parser.add_option('--proxy',          dest='proxy',      default='',          help='specify as [[socks4|socks5|http://]user:pass@]host:port (default proto is socks5)')
-parser.add_option('--no-ocl',         dest='no_ocl',     action='store_true', help="don't use OpenCL")
-parser.add_option('--no-bfl',         dest='no_bfl',     action='store_true', help="don't use Butterfly Labs")
-parser.add_option('-d', '--device',   dest='device',     default=[],          help='comma separated device IDs, by default will use all (for OpenCL - only GPU devices)')
+parser.add_option('--verbose',        dest='verbose',        action='store_true', help='verbose output, suitable for redirection to log file')
+parser.add_option('-q', '--quiet',    dest='quiet',          action='store_true', help='suppress all output except hash rate display')
+parser.add_option('--proxy',          dest='proxy',          default='',          help='specify as [[socks4|socks5|http://]user:pass@]host:port (default proto is socks5)')
+parser.add_option('--no-ocl',         dest='no_ocl',         action='store_true', help="don't use OpenCL")
+parser.add_option('--no-bfl',         dest='no_bfl',         action='store_true', help="don't use Butterfly Labs")
+parser.add_option('--stratum-proxies',dest='stratum_proxies',action='store_true', help="search for and use stratum proxies in subnet")
+parser.add_option('-d', '--device',   dest='device',         default=[],          help='comma separated device IDs, by default will use all (for OpenCL - only GPU devices)')
 
 group = OptionGroup(parser, "Miner Options")
 group.add_option('-r', '--rate',          dest='rate',       default=1,       help='hash rate display interval in seconds, default=1 (60 with --verbose)', type='float')

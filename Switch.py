@@ -279,14 +279,17 @@ class Switch(object):
 		return self.server().source
 
 	def add_stratum_source(self):
-		stratum_proxy = StratumSource.detect_stratum_proxy(self.server().host)
-		if stratum_proxy:
-			original_server = copy(self.server())
-			original_server.source = StratumSource.StratumSource(self)
-			self.servers.insert(self.backup_server_index, original_server)
-			self.server().host = stratum_proxy
-			self.server().name += '(p)'
-			log.server = self.server().name
+		if self.options.stratum_proxies:
+			stratum_proxy = StratumSource.detect_stratum_proxy(self.server().host)
+			if stratum_proxy:
+				original_server = copy(self.server())
+				original_server.source = StratumSource.StratumSource(self)
+				self.servers.insert(self.backup_server_index, original_server)
+				self.server().host = stratum_proxy
+				self.server().name += '(p)'
+				log.server = self.server().name
+			else:
+				say_line('No proxy found')
 		self.server().source = StratumSource.StratumSource(self)
 	
 	def server(self):
