@@ -34,12 +34,12 @@ if py2exe:
 						{'optimize': 2,
 						'bundle_files': 2,
 						'compressed': True,
-						'dll_excludes': ['OpenCL.dll'],
-						'excludes': ["Tkconstants", "Tkinter", "tcl"],
+						'dll_excludes': ['OpenCL.dll', 'w9xpopen.exe', 'boost_python-vc90-mt-1_39.dll'],
+						'excludes': ["Tkconstants", "Tkinter", "tcl", "curses", "_ssl", "pyexpat", "unicodedata", "bz2"],
 						},
 					},
 		'console': ['poclbm.py'],
-		'data_files': ['phatk.cl', 'msvcp90.dll'],
+		'data_files': ['phatk.cl'],
 		'zipfile': None,
 	})
 
