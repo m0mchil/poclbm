@@ -90,7 +90,7 @@ class StratumSource(Source):
 
 
 					if not self.options.proxy:
-						self.socket = socket.nodelay_socket(socket.AF_INET, socket.SOCK_STREAM)
+						self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 						self.socket.connect((address, int(port)))
 					else:
 						proxy_proto, user, pwd, proxy_host = self.options.proxy[:4]

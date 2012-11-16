@@ -13,11 +13,13 @@ import socket
 realsocket = socket.socket
 def socketwrap(family=socket.AF_INET, type=socket.SOCK_STREAM, proto=0):
 	sockobj = realsocket(family, type, proto)
-	sockobj.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-	sockobj.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+	if type == socket.SOCK_STREAM:
+		sockobj.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+		sockobj.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
 	sockobj.settimeout(5)
 	return sockobj
-socket.nodelay_socket = socketwrap
+socket.socket = socketwrap
+
 
 usage = "usage: %prog [OPTION]... SERVER[#tag]...\nSERVER is one or more [http[s]|stratum://]user:pass@host:port          (required)\n[#tag] is a per SERVER user friendly name displayed in stats (optional)"
 parser = OptionParser(version=VERSION, usage=usage)
