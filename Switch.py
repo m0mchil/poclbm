@@ -90,11 +90,7 @@ class Switch(object):
 
 	def loop(self):
 		self.should_stop = False
-		if not self.servers:
-			print '\nAt least one server is required'
-			return
-		else:
-			self.set_server_index(0)
+		self.set_server_index(0)
 
 		while True:
 			if self.should_stop: return

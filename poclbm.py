@@ -85,13 +85,14 @@ try:
 		for miner in BFLMiner.initialize(options):
 			switch.add_miner(miner)
 
-	for miner in switch.miners:
-		miner.start()
-
-	if switch.miners:
-		switch.loop()
-	else:
+	if not switch.servers:
+		print '\nAt least one server is required\n'
+	elif not switch.miners:
 		print '\nNothing to mine on, exiting\n'
+	else:
+		for miner in switch.miners:
+			miner.start()
+		switch.loop()
 except KeyboardInterrupt:
 	print '\nbye'
 finally:
