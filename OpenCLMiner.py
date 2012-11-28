@@ -32,9 +32,14 @@ if PYOPENCL:
 	except Exception:
 		print '\nNo OpenCL\n'
 
+def is_amd(platform):
+	if 'amd' in platform.name.lower():
+		return True
+	return False
+
 def has_amd():
 	for platform in cl.get_platforms():
-		if 'amd' in platform.name.lower():
+		if is_amd(platform):
 			return True
 	return False
 
@@ -124,9 +129,11 @@ class OpenCLMiner(Miner):
 		self.vectors = False
 
 		self.adapterIndex = None
-		if ADL and 'amd' in self.device.platform.name.lower() and self.device.type == cl.device_type.GPU:
+		if ADL and is_amd(self.device.platform) and self.device.type == cl.device_type.GPU:
 			with adl_lock:
-				self.adapterIndex = self.get_adapter_info()[self.device_index].iAdapterIndex
+				self.adapterIndex = self.get_adapter_info()
+				if self.adapterIndex:
+					self.adapterIndex = self.adapterIndex[self.device_index].iAdapterIndex
 
 	def id(self):
 		return str(self.options.platform) + ':' + str(self.device_index) + ':' + self.device_name
@@ -358,7 +365,7 @@ class OpenCLMiner(Miner):
 			adapterID = c_int(-1)
 
 			if ADL_Adapter_ID_Get(index, byref(adapterID)) != ADL_OK:
-				say_line("ADL_Adapter_Active_Get failed, cutoff temperature disabled for %s", self.id())
+				say_line("ADL_Adapter_ID_Get failed, cutoff temperature disabled for %s", self.id())
 				return
 
 			found = False
