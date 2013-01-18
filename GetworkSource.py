@@ -74,23 +74,10 @@ class GetworkSource(Source):
 			return connector(host, strict=True), True
 
 		host, port = host.split(':')
-
-		proxy_proto, user, pwd, proxy_host = self.options.proxy[:4]
-		proxy_port = 9050
-		proxy_host = proxy_host.split(':')
-		if len(proxy_host) > 1:
-			proxy_port = int(proxy_host[1]); proxy_host = proxy_host[0]
-
 		connection = connector(host, strict=True)
 		connection.sock = socks.socksocket()
-
-		proxy_type = socks.PROXY_TYPE_SOCKS5
-		if proxy_proto == 'http':
-			proxy_type = socks.PROXY_TYPE_HTTP
-		elif proxy_proto == 'socks4':
-			proxy_type = socks.PROXY_TYPE_SOCKS4
-
-		connection.sock.setproxy(proxy_type, proxy_host, proxy_port, True, user, pwd)
+		p = self.options.proxy
+		connection.sock.setproxy(p.type, p.host, p.port, True, p.user, p.pwd)
 		try:
 			connection.sock.connect((host, int(port)))
 		except socks.Socks5AuthError:

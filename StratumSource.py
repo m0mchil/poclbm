@@ -93,21 +93,9 @@ class StratumSource(Source):
 						self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 						self.socket.connect((address, int(port)))
 					else:
-						proxy_proto, user, pwd, proxy_host = self.options.proxy[:4]
-						proxy_port = 9050
-						proxy_host = proxy_host.split(':')
-						if len(proxy_host) > 1:
-							proxy_port = int(proxy_host[1]); proxy_host = proxy_host[0]
-
 						self.socket = socks.socksocket()
-				
-						proxy_type = socks.PROXY_TYPE_SOCKS5
-						if proxy_proto == 'http':
-							proxy_type = socks.PROXY_TYPE_HTTP
-						elif proxy_proto == 'socks4':
-							proxy_type = socks.PROXY_TYPE_SOCKS4
-				
-						self.socket.setproxy(proxy_type, proxy_host, proxy_port, True, user, pwd)
+						p = self.options.proxy
+						self.socket.setproxy(p.type, p.host, p.port, True, p.user, p.pwd)
 						try:
 							self.socket.connect((address, int(port)))
 						except socks.Socks5AuthError:

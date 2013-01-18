@@ -10,6 +10,7 @@ import GetworkSource
 import StratumSource
 import log
 import numpy as np
+import socks
 
 
 class Switch(object):
@@ -38,6 +39,7 @@ class Switch(object):
 
 		if self.options.proxy:
 			self.options.proxy = self.parse_server(self.options.proxy, False)
+			self.parse_proxy(self.options.proxy)
 
 		self.servers = []
 		for server in self.options.servers:
@@ -77,6 +79,18 @@ class Switch(object):
 		else: s.name = s.host
 
 		return s
+
+	def parse_proxy(self, proxy):
+		proxy.port = 9050
+		proxy.host = proxy.host.split(':')
+		if len(proxy.host) > 1:
+			proxy.port = int(proxy.host[1]); proxy.host = proxy.host[0]
+
+		proxy.type = socks.PROXY_TYPE_SOCKS5
+		if proxy.proto == 'http':
+			proxy.type = socks.PROXY_TYPE_HTTP
+		elif proxy.proto == 'socks4':
+			proxy.type = socks.PROXY_TYPE_SOCKS4
 
 	def add_miner(self, miner):
 		self.miners.append(miner)
