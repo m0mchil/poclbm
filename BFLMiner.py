@@ -145,7 +145,7 @@ class BFLMiner(Miner):
 				pass
 
 	def mining_thread(self):
-		say_line('started miner on %s', (self.id()))
+		say_line('started BFL miner on %s', (self.id()))
 
 		while not self.should_stop:
 			try:
