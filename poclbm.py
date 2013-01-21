@@ -71,16 +71,16 @@ options.device = tokenize(options.device, 'device', [])
 
 switch = None
 
-def sigusr1_handler(signum, frame):
-	raise KeyboardInterrupt
-
-def sigusr2_handler(signum, frame):
+def signal_handler(signum, frame):
 	if switch:
 		for miner in switch.miners:
-			miner.toggle_idle()
+			if signum == signal.SIGUSR1:
+				miner.on_idle()
+			elif signum == signal.SIGUSR2:
+				miner.on_active()
 
-signal.signal(signal.SIGUSR1, sigusr1_handler)
-signal.signal(signal.SIGUSR2, sigusr2_handler)
+signal.signal(signal.SIGUSR1, signal_handler)
+signal.signal(signal.SIGUSR2, signal_handler)
 
 options.cutoff_temp = tokenize(options.cutoff_temp, 'cutoff_temp', [95], float)
 options.cutoff_interval = tokenize(options.cutoff_interval, 'cutoff_interval', [0.01], float)

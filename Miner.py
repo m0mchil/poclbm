@@ -1,6 +1,6 @@
 from Queue import Queue
 from decimal import Decimal
-from threading import Thread, Lock
+from threading import Thread
 from time import time
 
 
@@ -19,7 +19,6 @@ class Miner(object):
 		self.rate = self.estimated_rate = 0
 
 		self.idle = True
-		self.idle_lock = Lock()
 
 	def start(self):
 		self.should_stop = False
@@ -45,6 +44,9 @@ class Miner(object):
 		self.estimated_rate = Decimal(self.estimated_rate) / 1000
 
 		self.switch.status_updated(self)
-	
-	def toggle_idle(self):
+
+	def on_idle(self):
+		pass
+
+	def on_active(self):
 		pass

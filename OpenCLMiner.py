@@ -135,10 +135,13 @@ class OpenCLMiner(Miner):
 				if self.adapterIndex:
 					self.adapterIndex = self.adapterIndex[self.device_index].iAdapterIndex
 
-	def toggle_idle(self):
-		with self.idle_lock:
-			self.idle = not self.idle
-			say_line('%s is now %s', (self.id(), if_else(self.idle, 'idle', 'active')))
+	def on_idle(self):
+		self.idle = True
+		say_line('%s is now idle', (self.id()))
+
+	def on_active(self):
+		self.idle = False
+		say_line('%s is now active', (self.id()))
 
 	def id(self):
 		return str(self.options.platform) + ':' + str(self.device_index) + ':' + self.device_name
