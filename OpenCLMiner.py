@@ -135,6 +135,11 @@ class OpenCLMiner(Miner):
 				if self.adapterIndex:
 					self.adapterIndex = self.adapterIndex[self.device_index].iAdapterIndex
 
+	def toggle_idle(self):
+		with self.idle_lock:
+			self.idle = not self.idle
+			say_line('%s is now %s', (self.id(), if_else(self.idle, 'idle', 'active')))
+
 	def id(self):
 		return str(self.options.platform) + ':' + str(self.device_index) + ':' + self.device_name
 
@@ -204,7 +209,7 @@ class OpenCLMiner(Miner):
 					self.kernel.set_arg(18, f[3])
 					self.kernel.set_arg(19, f[4])
 
-			if temperature < self.cutoff_temp:
+			if temperature < self.cutoff_temp and not self.idle:
 				self.kernel.set_arg(14, pack('I', base))
 				cl.enqueue_nd_range_kernel(queue, self.kernel, (global_threads,), (self.worksize,))
 
@@ -215,7 +220,10 @@ class OpenCLMiner(Miner):
 			else:
 				threads_run_pace = 0
 				last_rated_pace = time()
-				sleep(self.cutoff_interval)
+				if self.idle:
+					sleep(1)
+				else:
+					sleep(self.cutoff_interval)
 
 			now = time()
 			if self.adapterIndex != None:
@@ -226,7 +234,7 @@ class OpenCLMiner(Miner):
 						temperature = self.get_temperature()
 
 			t = now - last_rated_pace
-			if t > 1:
+			if t > 1 and threads_run_pace != 0:
 				rate = (threads_run_pace / t) / rate_divisor
 				last_rated_pace = now; threads_run_pace = 0
 				r = last_hash_rate / rate

@@ -69,15 +69,22 @@ options.max_update_time = 60
 
 options.device = tokenize(options.device, 'device', [])
 
-def signal_handler(signum, frame):
+switch = None
+
+def sigusr1_handler(signum, frame):
 	raise KeyboardInterrupt
 
-signal.signal(signal.SIGUSR1, signal_handler)
+def sigusr2_handler(signum, frame):
+	if switch:
+		for miner in switch.miners:
+			miner.toggle_idle()
+
+signal.signal(signal.SIGUSR1, sigusr1_handler)
+signal.signal(signal.SIGUSR2, sigusr2_handler)
 
 options.cutoff_temp = tokenize(options.cutoff_temp, 'cutoff_temp', [95], float)
 options.cutoff_interval = tokenize(options.cutoff_interval, 'cutoff_interval', [0.01], float)
 
-switch = None
 try:
 	switch = Switch(options)
 
