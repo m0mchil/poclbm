@@ -6,8 +6,7 @@ from sha256 import partial, calculateF
 from struct import pack
 from threading import Lock
 from time import sleep, time
-from util import if_else, uint32, Object, bytereverse, patch, tokenize
-import numpy as np
+from util import if_else, uint32, Object, bytereverse, patch, tokenize, bytearray_to_uint32
 import sys
 
 
@@ -139,10 +138,11 @@ class OpenCLMiner(Miner):
 		return str(self.options.platform) + ':' + str(self.device_index) + ':' + self.device_name
 
 	def nonce_generator(self, nonces):
-		for i in xrange(self.output_size):
-			if nonces[i]:
-				yield nonces[i]
-		
+		for i in xrange(0, len(nonces) - 4, 4):
+			nonce = bytearray_to_uint32(nonces[i:i+4])
+			if nonce:
+				yield nonce
+
 
 	def mining_thread(self):
 		say_line('started OpenCL miner on platform %d, device %d (%s)', (self.options.platform, self.device_index, self.device_name))
@@ -160,7 +160,7 @@ class OpenCLMiner(Miner):
 
 		last_rated_pace = last_rated = last_n_time = last_temperature = time()
 		base = last_hash_rate = threads_run_pace = threads_run = 0
-		output = np.zeros(self.output_size + 1, np.uint32)
+		output = bytearray((self.output_size + 1) * 4)
 		output_buffer = cl.Buffer(self.context, cl.mem_flags.WRITE_ONLY | cl.mem_flags.USE_HOST_PTR, hostbuf=output)
 		self.kernel.set_arg(20, output_buffer)
 
@@ -179,30 +179,31 @@ class OpenCLMiner(Miner):
 					if not work: continue
 					nonces_left = hashspace
 					state = work.state
-					state2 = work.state2
-					f = work.f
+					f = [0] * 8
+					state2 = partial(state, work.merkle_end, work.time, work.difficulty, f)
+					calculateF(state, work.merkle_end, work.time, work.difficulty, f, state2)
 
-					self.kernel.set_arg(0, state[0])
-					self.kernel.set_arg(1, state[1])
-					self.kernel.set_arg(2, state[2])
-					self.kernel.set_arg(3, state[3])
-					self.kernel.set_arg(4, state[4])
-					self.kernel.set_arg(5, state[5])
-					self.kernel.set_arg(6, state[6])
-					self.kernel.set_arg(7, state[7])
+					self.kernel.set_arg(0, pack('I', state[0]))
+					self.kernel.set_arg(1, pack('I', state[1]))
+					self.kernel.set_arg(2, pack('I', state[2]))
+					self.kernel.set_arg(3, pack('I', state[3]))
+					self.kernel.set_arg(4, pack('I', state[4]))
+					self.kernel.set_arg(5, pack('I', state[5]))
+					self.kernel.set_arg(6, pack('I', state[6]))
+					self.kernel.set_arg(7, pack('I', state[7]))
 
-					self.kernel.set_arg(8, state2[1])
-					self.kernel.set_arg(9, state2[2])
-					self.kernel.set_arg(10, state2[3])
-					self.kernel.set_arg(11, state2[5])
-					self.kernel.set_arg(12, state2[6])
-					self.kernel.set_arg(13, state2[7])
+					self.kernel.set_arg(8, pack('I', state2[1]))
+					self.kernel.set_arg(9, pack('I', state2[2]))
+					self.kernel.set_arg(10, pack('I', state2[3]))
+					self.kernel.set_arg(11, pack('I', state2[5]))
+					self.kernel.set_arg(12, pack('I', state2[6]))
+					self.kernel.set_arg(13, pack('I', state2[7]))
 
-					self.kernel.set_arg(15, f[0])
-					self.kernel.set_arg(16, f[1])
-					self.kernel.set_arg(17, f[2])
-					self.kernel.set_arg(18, f[3])
-					self.kernel.set_arg(19, f[4])
+					self.kernel.set_arg(15, pack('I', f[0]))
+					self.kernel.set_arg(16, pack('I', f[1]))
+					self.kernel.set_arg(17, pack('I', f[2]))
+					self.kernel.set_arg(18, pack('I', f[3]))
+					self.kernel.set_arg(19, pack('I', f[4]))
 
 			if temperature < self.cutoff_temp:
 				self.kernel.set_arg(14, pack('I', base))
@@ -243,21 +244,21 @@ class OpenCLMiner(Miner):
 			cl.enqueue_read_buffer(queue, output_buffer, output)
 			queue.finish()
 
-			if output[self.output_size]:
+			if output[-1]:
 				result = Object()
 				result.header = work.header
 				result.merkle_end = work.merkle_end
 				result.time = work.time
 				result.difficulty = work.difficulty
 				result.target = work.target
-				result.state = np.array(state)
-				result.nonces = np.array(output)
+				result.state = list(state)
+				result.nonces = output[:]
 				result.job_id = work.job_id
 				result.extranonce2 = work.extranonce2
 				result.server = work.server
 				result.miner = self
 				self.switch.put(result)
-				output.fill(0)
+				output[:] = b'\x00' * len(output)
 				cl.enqueue_write_buffer(queue, output_buffer, output)
 
 			if not self.switch.update_time:
@@ -271,17 +272,17 @@ class OpenCLMiner(Miner):
 				work.time = bytereverse(bytereverse(work.time) + 1)
 				state2 = partial(state, work.merkle_end, work.time, work.difficulty, f)
 				calculateF(state, work.merkle_end, work.time, work.difficulty, f, state2)
-				self.kernel.set_arg(8, state2[1])
-				self.kernel.set_arg(9, state2[2])
-				self.kernel.set_arg(10, state2[3])
-				self.kernel.set_arg(11, state2[5])
-				self.kernel.set_arg(12, state2[6])
-				self.kernel.set_arg(13, state2[7])
-				self.kernel.set_arg(15, f[0])
-				self.kernel.set_arg(16, f[1])
-				self.kernel.set_arg(17, f[2])
-				self.kernel.set_arg(18, f[3])
-				self.kernel.set_arg(19, f[4])
+				self.kernel.set_arg(8, pack('I', state2[1]))
+				self.kernel.set_arg(9, pack('I', state2[2]))
+				self.kernel.set_arg(10, pack('I', state2[3]))
+				self.kernel.set_arg(11, pack('I', state2[5]))
+				self.kernel.set_arg(12, pack('I', state2[6]))
+				self.kernel.set_arg(13, pack('I', state2[7]))
+				self.kernel.set_arg(15, pack('I', f[0]))
+				self.kernel.set_arg(16, pack('I', f[1]))
+				self.kernel.set_arg(17, pack('I', f[2]))
+				self.kernel.set_arg(18, pack('I', f[3]))
+				self.kernel.set_arg(19, pack('I', f[4]))
 				last_n_time = now
 				self.update_time_counter += 1
 				if self.update_time_counter >= self.switch.max_update_time:

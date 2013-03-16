@@ -1,15 +1,14 @@
 
 from copy import copy
 from log import say_exception, say_line, say_quiet
-from sha256 import sha256, STATE, partial, calculateF, hash
+from sha256 import hash, sha256, STATE
 from struct import pack, unpack
 from threading import RLock
 from time import time, sleep
-from util import if_else, Object, chunks, bytereverse, belowOrEquals
+from util import if_else, Object, chunks, bytereverse, belowOrEquals, uint32
 import GetworkSource
 import StratumSource
 import log
-import numpy as np
 import socks
 
 
@@ -155,25 +154,20 @@ class Switch(object):
 	def decode(self, server, block_header, target, job_id = None, extranonce2 = None):
 		if block_header:
 			job = Object()
-	
+
 			binary_data = block_header.decode('hex')
-			data0 = np.zeros(64, np.uint32)
-			data0 = np.insert(data0, [0] * 16, unpack('IIIIIIIIIIIIIIII', binary_data[:64]))
-	
-			job.target	  = np.array(unpack('IIIIIIII', target.decode('hex')), dtype=np.uint32)
-			job.header	  = binary_data[:68]
-			job.merkle_end  = np.uint32(unpack('I', binary_data[64:68])[0])
-			job.time		= np.uint32(unpack('I', binary_data[68:72])[0])
-			job.difficulty  = np.uint32(unpack('I', binary_data[72:76])[0])
-			job.state	   = sha256(STATE, data0)
-			job.f		   = np.zeros(8, np.uint32)
-			job.state2	  = partial(job.state, job.merkle_end, job.time, job.difficulty, job.f)
-			job.targetQ	 = 2**256 / int(''.join(list(chunks(target, 2))[::-1]), 16)
-			job.job_id	  = job_id
-			job.extranonce2 = extranonce2
-			job.server	  = server
-	
-			calculateF(job.state, job.merkle_end, job.time, job.difficulty, job.f, job.state2)
+			data0 = list(unpack('16I', binary_data[:64])) + ([0] * 48)
+
+			job.target		= unpack('8I', target.decode('hex'))
+			job.header		= binary_data[:68]
+			job.merkle_end	= uint32(unpack('I', binary_data[64:68])[0])
+			job.time		= uint32(unpack('I', binary_data[68:72])[0])
+			job.difficulty	= uint32(unpack('I', binary_data[72:76])[0])
+			job.state		= sha256(STATE, data0)
+			job.targetQ		= 2**256 / int(''.join(list(chunks(target, 2))[::-1]), 16)
+			job.job_id		= job_id
+			job.extranonce2	= extranonce2
+			job.server		= server
 
 			if job.difficulty != self.difficulty:
 				self.set_difficulty(job.difficulty)
@@ -182,10 +176,10 @@ class Switch(object):
 
 	def set_difficulty(self, difficulty):
 		self.difficulty = difficulty
-		bits = '%08x' % difficulty.byteswap()
+		bits = '%08x' % bytereverse(difficulty)
 		true_target = '%064x' % (int(bits[2:], 16) * 2 ** (8 * (int(bits[:2], 16) - 3)),)
 		true_target = ''.join(list(chunks(true_target, 2))[::-1])
-		self.true_target = np.array(unpack('IIIIIIII', true_target.decode('hex')), dtype=np.uint32)
+		self.true_target = unpack('8I', true_target.decode('hex'))
 
 	def send(self, result, send_callback):
 		for nonce in result.miner.nonce_generator(result.nonces):

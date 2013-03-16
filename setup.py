@@ -20,7 +20,7 @@ args = {
     'author': 'Momchil Georgiev',
     'author_email': 'pishtov@gmail.com',
     'url': 'https://github.com/m0mchil/poclbm/',
-    'install_requires': ['numpy', 'pyserial>=2.6'],
+    'install_requires': ['pyserial>=2.6'],
     'scripts': ['poclbm.py'],
 }
 

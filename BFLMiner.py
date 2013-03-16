@@ -1,13 +1,12 @@
 from Miner import Miner
 from Queue import Empty
-from binascii import unhexlify
 from ioutil import find_udev, find_serial_by_id, find_com_ports
 from log import say_line, say_exception
 from serial.serialutil import SerialException
+from struct import pack, unpack, error
 from sys import maxint
 from time import time, sleep
-from util import Object
-import numpy as np
+from util import Object, uint32, bytereverse
 import serial
 
 CHECK_INTERVAL = 0.01
@@ -90,8 +89,8 @@ class BFLMiner(Miner):
 			response = request(self.device, b'ZDX')
 			if self.is_ok(response):
 				if self.switch.update_time:
-					self.job.time = (np.uint32(time()) - self.job.time_delta).byteswap()
-				data = b''.join([self.job.state.tostring(), self.job.merkle_end.tostring(), self.job.time.tostring(), self.job.difficulty.tostring()])
+					self.job.time = bytereverse(uint32(long(time())) - self.job.time_delta)
+				data = b''.join([pack('8I', *self.job.state), pack('3I', self.job.merkle_end, self.job.time, self.job.difficulty)])
 				response = request(self.device, b''.join([b'>>>>>>>>', data, b'>>>>>>>>']))
 				if self.is_ok(response):
 					self.busy = True
@@ -110,7 +109,7 @@ class BFLMiner(Miner):
 					self.last_job.miner = self
 
 					self.check_interval = CHECK_INTERVAL
-					if not self.switch.update_time or self.job.time.byteswap() - self.job.original_time.byteswap() > 55:
+					if not self.switch.update_time or bytereverse(self.job.time) - bytereverse(self.job.original_time) > 55:
 						self.update = True
 						self.job = None
 				else:
@@ -122,14 +121,14 @@ class BFLMiner(Miner):
 
 	def get_temperature(self):
 		response = request(self.device, b'ZLX')
-		if response[0] != b'T' or len(response) < 23 or response[-1:] != b'\n':
+		if len(response) < 23 or response[0] != b'T' or response[-1:] != b'\n':
 			say_line('%s: bad response for temperature: %s', (self.id(), response))
 			return 0
 		return float(response[23:-1])
 
 	def check_result(self):
 		response = request(self.device, b'ZFX')
-		if response[0] == b'B': return False
+		if response.startswith(b'B'): return False
 		if response == b'NO-NONCE\n': return response
 		if response[:12] != 'NONCE-FOUND:' or response[-1:] != '\n':
 			say_line('%s: bad response checking result: %s', (self.id(), response))
@@ -140,8 +139,8 @@ class BFLMiner(Miner):
 		for nonce in nonces.split(b','):
 			if len(nonce) != 8: continue
 			try:
-				yield np.fromstring(unhexlify(nonce)[::-1], dtype=np.uint32, count=1)[0]
-			except TypeError:
+				yield unpack('I', nonce.decode('hex')[::-1])[0]
+			except error:
 				pass
 
 	def mining_thread(self):
@@ -175,8 +174,8 @@ class BFLMiner(Miner):
 								continue
 							targetQ = self.job.targetQ
 							self.job.original_time = self.job.time
-							self.job.time_delta = np.uint32(time()) - self.job.time.byteswap()
-		
+							self.job.time_delta = uint32(long(time())) - bytereverse(self.job.time)
+
 					if not self.busy:
 						self.put_job()
 					else:
@@ -200,7 +199,7 @@ class BFLMiner(Miner):
 							if result != b'NO-NONCE\n':
 								r.nonces = result
 								self.switch.put(r)
-	
+
 							sleep(self.min_interval - (CHECK_INTERVAL * 2))
 						else:
 							if result is None:
