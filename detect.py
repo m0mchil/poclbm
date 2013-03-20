@@ -1,4 +1,8 @@
-from platform import system
+WINDOWS = LINUX = None
 
-WINDOWS = system() == 'Windows'
-LINUX = system() == 'Linux'
+try:
+	from platform import system
+	WINDOWS = system() == 'Windows'
+	LINUX = system() == 'Linux'
+except ImportError:
+	pass
