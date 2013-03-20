@@ -133,9 +133,8 @@ class StratumSource(Source):
 	def refresh_job(self, j):
 		j.extranonce2 = self.increment_nonce(j.extranonce2)
 		coinbase = j.coinbase1 + self.extranonce + j.extranonce2 + j.coinbase2
-		coinbase_hash = sha256(sha256(unhexlify(coinbase)).digest()).digest()
+		merkle_root = sha256(sha256(unhexlify(coinbase)).digest()).digest()
 
-		merkle_root = coinbase_hash
 		for hash_ in j.merkle_branch:
 			merkle_root = sha256(sha256(merkle_root + unhexlify(hash_)).digest()).digest()
 		merkle_root_reversed = ''
@@ -146,7 +145,6 @@ class StratumSource(Source):
 		j.block_header = ''.join([j.version, j.prevhash, merkle_root, j.ntime, j.nbits])
 		j.time = time()
 		return j
-		
 
 	def increment_nonce(self, nonce):
 		next_nonce = long(nonce, 16) + 1
@@ -266,8 +264,8 @@ class StratumSource(Source):
 		if not job_id in self.jobs:
 			return True
 		extranonce2 = result.extranonce2
-		ntime = pack('I', long(result.time)).encode('hex')
-		hex_nonce = pack('I', long(nonce)).encode('hex')
+		ntime = pack('<I', long(result.time)).encode('hex')
+		hex_nonce = pack('<I', long(nonce)).encode('hex')
 		id_ = job_id + hex_nonce
 		self.submits[id_] = (result.miner, nonce, time())
 		return self.send_message({'params': [self.server().user, job_id, extranonce2, ntime, hex_nonce], 'id': id_, 'method': u'mining.submit'})

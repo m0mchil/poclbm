@@ -151,7 +151,7 @@ class GetworkSource(Source):
 			say_exception()
 
 	def send_internal(self, result, nonce):
-		data = ''.join([result.header.encode('hex'), pack('III', long(result.time), long(result.difficulty), long(nonce)).encode('hex'), '000000800000000000000000000000000000000000000000000000000000000000000000000000000000000080020000'])
+		data = ''.join([result.header.encode('hex'), pack('<3I', long(result.time), long(result.difficulty), long(nonce)).encode('hex'), '000000800000000000000000000000000000000000000000000000000000000000000000000000000000000080020000'])
 		accepted = self.getwork(data)
 		if accepted != None:
 			self.switch.report(result.miner, nonce, accepted)

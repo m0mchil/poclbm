@@ -1,4 +1,3 @@
-
 from copy import copy
 from log import say_exception, say_line, say_quiet
 from sha256 import hash, sha256, STATE
@@ -6,7 +5,6 @@ from struct import pack, unpack
 from threading import RLock
 from time import time, sleep
 from util import if_else, Object, chunks, bytereverse, belowOrEquals, uint32
-import GetworkSource
 import StratumSource
 import log
 import socks
@@ -156,13 +154,13 @@ class Switch(object):
 			job = Object()
 
 			binary_data = block_header.decode('hex')
-			data0 = list(unpack('16I', binary_data[:64])) + ([0] * 48)
+			data0 = list(unpack('<16I', binary_data[:64])) + ([0] * 48)
 
-			job.target		= unpack('8I', target.decode('hex'))
+			job.target		= unpack('<8I', target.decode('hex'))
 			job.header		= binary_data[:68]
-			job.merkle_end	= uint32(unpack('I', binary_data[64:68])[0])
-			job.time		= uint32(unpack('I', binary_data[68:72])[0])
-			job.difficulty	= uint32(unpack('I', binary_data[72:76])[0])
+			job.merkle_end	= uint32(unpack('<I', binary_data[64:68])[0])
+			job.time		= uint32(unpack('<I', binary_data[68:72])[0])
+			job.difficulty	= uint32(unpack('<I', binary_data[72:76])[0])
 			job.state		= sha256(STATE, data0)
 			job.targetQ		= 2**256 / int(''.join(list(chunks(target, 2))[::-1]), 16)
 			job.job_id		= job_id
@@ -179,21 +177,21 @@ class Switch(object):
 		bits = '%08x' % bytereverse(difficulty)
 		true_target = '%064x' % (int(bits[2:], 16) * 2 ** (8 * (int(bits[:2], 16) - 3)),)
 		true_target = ''.join(list(chunks(true_target, 2))[::-1])
-		self.true_target = unpack('8I', true_target.decode('hex'))
+		self.true_target = unpack('<8I', true_target.decode('hex'))
 
 	def send(self, result, send_callback):
 		for nonce in result.miner.nonce_generator(result.nonces):
 			h = hash(result.state, result.merkle_end, result.time, result.difficulty, nonce)
 			if h[7] != 0:
-				hash6 = pack('I', long(h[6])).encode('hex')
+				hash6 = pack('<I', long(h[6])).encode('hex')
 				say_line('Verification failed, check hardware! (%s, %s)', (result.miner.id(), hash6))
 				return True # consume this particular result
 			else:
 				self.diff1_found(bytereverse(h[6]), result.target[6])
 				if belowOrEquals(h[:7], result.target[:7]):
 					is_block = belowOrEquals(h[:7], self.true_target[:7])
-					hash6 = pack('I', long(h[6])).encode('hex')
-					hash5 = pack('I', long(h[5])).encode('hex')
+					hash6 = pack('<I', long(h[6])).encode('hex')
+					hash5 = pack('<I', long(h[5])).encode('hex')
 					self.sent[nonce] = (is_block, hash6, hash5)
 					if not send_callback(result, nonce):
 						return False
@@ -265,9 +263,8 @@ class Switch(object):
 
 	def server_source(self):
 		if not hasattr(self.server(), 'source'):
-			if self.server().proto == 'stratum':
-				self.add_stratum_source()
-			else:
+			if self.server().proto == 'http':
+				import GetworkSource
 				getwork_source = GetworkSource.GetworkSource(self)
 				say_line('checking for stratum...')
 
@@ -279,6 +276,8 @@ class Switch(object):
 					self.add_stratum_source()
 				else:
 					self.server().source = getwork_source
+			else:
+				self.add_stratum_source()
 
 		return self.server().source
 

@@ -90,7 +90,7 @@ class BFLMiner(Miner):
 			if self.is_ok(response):
 				if self.switch.update_time:
 					self.job.time = bytereverse(uint32(long(time())) - self.job.time_delta)
-				data = b''.join([pack('8I', *self.job.state), pack('3I', self.job.merkle_end, self.job.time, self.job.difficulty)])
+				data = b''.join([pack('<8I', *self.job.state), pack('<3I', self.job.merkle_end, self.job.time, self.job.difficulty)])
 				response = request(self.device, b''.join([b'>>>>>>>>', data, b'>>>>>>>>']))
 				if self.is_ok(response):
 					self.busy = True
@@ -139,7 +139,7 @@ class BFLMiner(Miner):
 		for nonce in nonces.split(b','):
 			if len(nonce) != 8: continue
 			try:
-				yield unpack('I', nonce.decode('hex')[::-1])[0]
+				yield unpack('<I', nonce.decode('hex')[::-1])[0]
 			except error:
 				pass
 
