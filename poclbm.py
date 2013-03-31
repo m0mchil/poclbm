@@ -14,7 +14,7 @@ class LongPollingSocket(socket.socket):
 	Socket wrapper to enable socket.TCP_NODELAY and KEEPALIVE
 	"""
 	def __init__(self, family=socket.AF_INET, type=socket.SOCK_STREAM, proto=0):
-		super(LongPollingSocket, self).__init__(family, type, proto=0)
+		super(LongPollingSocket, self).__init__(family, type, proto)
 		if type == socket.SOCK_STREAM:
 			self.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
 			self.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
