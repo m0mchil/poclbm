@@ -9,16 +9,18 @@ import log
 import socket
 
 
-# Socket wrapper to enable socket.TCP_NODELAY and KEEPALIVE
-realsocket = socket.socket
-def socketwrap(family=socket.AF_INET, type=socket.SOCK_STREAM, proto=0):
-	sockobj = realsocket(family, type, proto)
-	if type == socket.SOCK_STREAM:
-		sockobj.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-		sockobj.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
-	sockobj.settimeout(5)
-	return sockobj
-socket.socket = socketwrap
+class LongPollingSocket(socket.socket):
+	"""
+	Socket wrapper to enable socket.TCP_NODELAY and KEEPALIVE
+	"""
+	def __init__(self, family=socket.AF_INET, type=socket.SOCK_STREAM, proto=0):
+		super(LongPollingSocket, self).__init__(family, type, proto)
+		if type == socket.SOCK_STREAM:
+			self.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+			self.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+		self.settimeout(5)
+
+socket.socket = LongPollingSocket
 
 
 usage = "usage: %prog [OPTION]... SERVER[#tag]...\nSERVER is one or more [http[s]|stratum://]user:pass@host:port          (required)\n[#tag] is a per SERVER user friendly name displayed in stats (optional)"
