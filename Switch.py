@@ -4,7 +4,7 @@ from sha256 import hash, sha256, STATE
 from struct import pack, unpack
 from threading import RLock
 from time import time, sleep
-from util import if_else, Object, chunks, bytereverse, belowOrEquals, uint32
+from util import Object, chunks, bytereverse, belowOrEquals, uint32
 import StratumSource
 import log
 import socks
@@ -203,19 +203,19 @@ class Switch(object):
 
 	def status_updated(self, miner):
 		verbose = self.options.verbose
-		rate = if_else(verbose, miner.rate, sum([m.rate for m in self.miners]))
-		estimated_rate = if_else(verbose, miner.estimated_rate, sum([m.estimated_rate for m in self.miners]))
-		rejected_shares = if_else(verbose, miner.share_count[0], sum([m.share_count[0] for m in self.miners]))
-		total_shares = rejected_shares + if_else(verbose, miner.share_count[1], sum([m.share_count[1] for m in self.miners]))
+		rate = miner.rate if verbose else sum([m.rate for m in self.miners])
+		estimated_rate = miner.estimated_rate if verbose else sum([m.estimated_rate for m in self.miners])
+		rejected_shares = miner.share_count[0] if verbose else sum([m.share_count[0] for m in self.miners])
+		total_shares = rejected_shares + miner.share_count[1] if verbose else sum([m.share_count[1] for m in self.miners])
 		total_shares_estimator = max(total_shares, 1)
-		say_quiet('%s[%.03f MH/s (~%d MH/s)] [Rej: %d/%d (%.02f%%)]', (if_else(verbose, miner.id()+' ', '') , rate, round(estimated_rate), rejected_shares, total_shares, float(rejected_shares) * 100 / total_shares_estimator))
+		say_quiet('%s[%.03f MH/s (~%d MH/s)] [Rej: %d/%d (%.02f%%)]', (miner.id()+' ' if verbose else '', rate, round(estimated_rate), rejected_shares, total_shares, float(rejected_shares) * 100 / total_shares_estimator))
 
 	def report(self, miner, nonce, accepted):
 		is_block, hash6, hash5 = self.sent[nonce]
-		miner.share_count[if_else(accepted, 1, 0)] += 1
-		hash_ = if_else(is_block, hash6 + hash5, hash6)
+		miner.share_count[1 if accepted else 0] += 1
+		hash_ = hash6 + hash5 if is_block else hash6
 		if self.options.verbose or is_block:
-			say_line('%s %s%s, %s', (miner.id(), if_else(is_block, 'block ', ''), hash_, if_else(accepted, 'accepted', '_rejected_')))
+			say_line('%s %s%s, %s', (miner.id(), 'block ' if is_block else '', hash_, 'accepted' if accepted else '_rejected_'))
 		del self.sent[nonce]
 
 	def set_server_index(self, server_index):

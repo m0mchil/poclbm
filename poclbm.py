@@ -3,7 +3,7 @@
 from Switch import Switch
 from optparse import OptionGroup, OptionParser
 from time import sleep
-from util import if_else, tokenize
+from util import tokenize
 from version import VERSION
 import log
 import socket
@@ -62,7 +62,7 @@ parser.add_option_group(group)
 log.verbose = options.verbose
 log.quiet = options.quiet
 
-options.rate = if_else(options.verbose, max(options.rate, 60), max(options.rate, 0.1))
+options.rate = max(options.rate, 60) if options.verbose else max(options.rate, 0.1)
 
 options.version = VERSION
 

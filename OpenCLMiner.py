@@ -6,7 +6,7 @@ from sha256 import partial, calculateF
 from struct import pack, unpack, error
 from threading import Lock
 from time import sleep, time
-from util import if_else, uint32, Object, bytereverse, tokenize, \
+from util import uint32, Object, bytereverse, tokenize, \
 	bytearray_to_uint32
 import sys
 
@@ -77,7 +77,7 @@ def initialize(options):
 	options.worksize = tokenize(options.worksize, 'worksize')
 	options.frames = tokenize(options.frames, 'frames', [30])
 	options.frameSleep = tokenize(options.frameSleep, 'frameSleep', cast=float)
-	options.vectors = if_else(options.old_vectors, [True], tokenize(options.vectors, 'vectors', [False], bool))
+	options.vectors = [True] if options.old_vectors else tokenize(options.vectors, 'vectors', [False], bool)
 
 	platforms = cl.get_platforms()
 
@@ -149,7 +149,7 @@ class OpenCLMiner(Miner):
 	def mining_thread(self):
 		say_line('started OpenCL miner on platform %d, device %d (%s)', (self.options.platform, self.device_index, self.device_name))
 
-		(self.defines, rate_divisor, hashspace) = if_else(self.vectors, ('-DVECTORS', 500, 0x7FFFFFFF), ('', 1000, 0xFFFFFFFF))
+		(self.defines, rate_divisor, hashspace) = ('-DVECTORS', 500, 0x7FFFFFFF) if self.vectors else ('', 1000, 0xFFFFFFFF)
 		self.defines += (' -DOUTPUT_SIZE=' + str(self.output_size))
 		self.defines += (' -DOUTPUT_MASK=' + str(self.output_size - 1))
 

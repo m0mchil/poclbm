@@ -7,7 +7,6 @@ from struct import pack
 from threading import Thread
 from time import sleep, time
 from urlparse import urlsplit
-from util import if_else
 import httplib
 import socket
 import socks
@@ -139,7 +138,7 @@ class GetworkSource(Source):
 	def getwork(self, data=None):
 		try:
 			self.connection = self.ensure_connected(self.connection, self.server().proto, self.server().host)[0]
-			self.postdata['params'] = if_else(data, [data], [])
+			self.postdata['params'] = [data] if data else []
 			(self.connection, result) = self.request(self.connection, '/', self.headers, dumps(self.postdata))
 
 			self.switch.connection_ok()

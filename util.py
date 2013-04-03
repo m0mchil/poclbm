@@ -22,12 +22,6 @@ def belowOrEquals(hash_, target):
 			return False
 	return True
 
-def if_else(condition, trueVal, falseVal):
-	if condition:
-		return trueVal
-	else:
-		return falseVal
-
 def chunks(l, n):
 	for i in xrange(0, len(l), n):
 		yield l[i:i+n]
