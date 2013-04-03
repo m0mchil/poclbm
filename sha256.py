@@ -45,24 +45,23 @@ def partial(state, merkle_end, time, difficulty, f):
 
 def calculateF(state, merkle_end, time, difficulty, f, state2):
 		data = [merkle_end, time, difficulty]
-		rot = lambda x,y: x>>y | x<<(32-y)
 		#W2
 		f[0] = uint32(data[2])
 
 		#W16
-		f[1] = uint32(data[0] + (rot(data[1], 7) ^ rot(data[1], 18) ^
+		f[1] = uint32(data[0] + (rotr(data[1], 7) ^ rotr(data[1], 18) ^
 			(data[1] >> 3)))
 		#W17
-		f[2] = uint32(data[1] + (rot(data[2], 7) ^ rot(data[2], 18) ^
+		f[2] = uint32(data[1] + (rotr(data[2], 7) ^ rotr(data[2], 18) ^
 			(data[2] >> 3)) + 0x01100000)
 
 		#2 parts of the first SHA round
-		f[3] = uint32(state[4] + (rot(state2[1], 6) ^
-			rot(state2[1], 11) ^ rot(state2[1], 25)) +
+		f[3] = uint32(state[4] + (rotr(state2[1], 6) ^
+			rotr(state2[1], 11) ^ rotr(state2[1], 25)) +
 			(state2[3] ^ (state2[1] & (state2[2] ^
 			state2[3]))) + 0xe9b5dba5)
-		f[4] = uint32((rot(state2[5], 2) ^
-			rot(state2[5], 13) ^ rot(state2[5], 22)) +
+		f[4] = uint32((rotr(state2[5], 2) ^
+			rotr(state2[5], 13) ^ rotr(state2[5], 22)) +
 			((state2[5] & state2[6]) | (state2[7] &
 			(state2[5] | state2[6]))))
 
