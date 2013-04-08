@@ -1,3 +1,4 @@
+from detect import MACOSX
 from Miner import Miner
 from Queue import Empty
 from hashlib import md5
@@ -31,6 +32,11 @@ if PYOPENCL:
 			print '\nNo OpenCL platforms\n'
 	except Exception:
 		print '\nNo OpenCL\n'
+
+def vectors_definition():
+	if MACOSX:
+		return '-D VECTORS'
+	return '-DVECTORS'
 
 def is_amd(platform):
 	if 'amd' in platform.name.lower():
@@ -149,7 +155,7 @@ class OpenCLMiner(Miner):
 	def mining_thread(self):
 		say_line('started OpenCL miner on platform %d, device %d (%s)', (self.options.platform, self.device_index, self.device_name))
 
-		(self.defines, rate_divisor, hashspace) = ('-DVECTORS', 500, 0x7FFFFFFF) if self.vectors else ('', 1000, 0xFFFFFFFF)
+		(self.defines, rate_divisor, hashspace) = (vectors_definition(), 500, 0x7FFFFFFF) if self.vectors else ('', 1000, 0xFFFFFFFF)
 		self.defines += (' -DOUTPUT_SIZE=' + str(self.output_size))
 		self.defines += (' -DOUTPUT_MASK=' + str(self.output_size - 1))
 
