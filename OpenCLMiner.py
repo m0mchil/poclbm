@@ -1,4 +1,4 @@
-from sys import platform as _platform
+from detect import MACOSX
 from Miner import Miner
 from Queue import Empty
 from hashlib import md5
@@ -33,13 +33,8 @@ if PYOPENCL:
 	except Exception:
 		print '\nNo OpenCL\n'
 
-def is_osx():
-	if 'darwin' == _platform:
-		return True
-	return False
-
 def vectors_definition():
-	if is_osx():
+	if MACOSX:
 		return '-D VECTORS'
 	return '-DVECTORS'
 
