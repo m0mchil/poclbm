@@ -1,8 +1,7 @@
-WINDOWS = LINUX = None
+from sys import platform
 
-try:
-	from platform import system
-	WINDOWS = system() == 'Windows'
-	LINUX = system() == 'Linux'
-except ImportError:
-	pass
+WINDOWS = LINUX = MACOSX = None
+
+WINDOWS = platform.startswith('win')
+LINUX = platform.startswith('linux')
+MACOSX = (platform == 'darwin')
